@@ -94,11 +94,27 @@ src/
 
 ## Run
 
-```bash
-npm install
-npx drizzle-kit push      # apply schema
-npm run build && npm start
+### One-Click Start (Windows)
+Double-click `start_studio.bat` or run:
+```powershell
+.\start_studio.bat
 ```
+
+### Manual Start
+1. Apply database schema:
+```bash
+npx drizzle-kit push
+```
+2. Start the local Faster-Whisper + OPUS-MT GPU server:
+```bash
+python server.py
+```
+3. Start the Next.js web application:
+```bash
+npm run dev
+```
+
+Visit `http://localhost:3000` in your browser.
 
 Server-side logs land in `logs/application.log` (timings, counts, languages —
 never dialogue). Uploads/work files live under `data/`.
