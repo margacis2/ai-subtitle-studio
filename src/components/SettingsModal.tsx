@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { Field, Modal, SectionTitle, Select, Toggle, Btn } from "./ui";
 import { Icon } from "./icons";
 import type { StudioSettings } from "@/lib/types";
@@ -27,8 +28,73 @@ export default function SettingsModal({
   setSettings: (patch: Partial<StudioSettings>) => void;
   onToast: (tone: "ok" | "err" | "warn" | "info", text: string) => void;
 }) {
+  const [colabUrl, setColabUrl] = useState("");
+  const [engineInfo, setEngineInfo] = useState<{
+    engineUrl: string;
+    isColab: boolean;
+    online: boolean;
+    latencyMs: number | null;
+    modelInfo: string;
+  } | null>(null);
+  const [checkingEngine, setCheckingEngine] = useState(false);
+
+  const fetchEngineStatus = async () => {
+    try {
+      const res = await fetch("/api/colab");
+      if (res.ok) {
+        const data = await res.json();
+        setEngineInfo(data);
+        if (data.isColab) {
+          setColabUrl(data.engineUrl);
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+  };
+
+  useEffect(() => {
+    let active = true;
+    if (open) {
+      fetch("/api/colab")
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data) => {
+          if (!active || !data) return;
+          setEngineInfo(data);
+          if (data.isColab) {
+            setColabUrl(data.engineUrl);
+          }
+        })
+        .catch(() => undefined);
+    }
+    return () => {
+      active = false;
+    };
+  }, [open]);
+
+  const saveColab = async (urlToSave: string) => {
+    setCheckingEngine(true);
+    try {
+      const res = await fetch("/api/colab", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: urlToSave }),
+      });
+      if (res.ok) {
+        await fetchEngineStatus();
+        onToast("ok", urlToSave ? "Connected to Google Colab GPU backend!" : "Switched to local GPU backend.");
+      } else {
+        onToast("err", "Failed to update engine URL");
+      }
+    } catch (e) {
+      onToast("err", e instanceof Error ? e.message : "Connection failed");
+    } finally {
+      setCheckingEngine(false);
+    }
+  };
+
   return (
-    <Modal open={open} onClose={onClose} title="Settings" wide>
+    <Modal open={open} onClose={onClose} title="Settings & Engine" wide>
       <div className="grid gap-5 sm:grid-cols-2">
         <div>
           <SectionTitle icon="eye">Appearance & accessibility</SectionTitle>
@@ -79,7 +145,10 @@ export default function SettingsModal({
             </Field>
             <Field label={`Max subtitle duration: ${settings.maxDurationSec}s`}>
               <input
-                type="range" min={4} max={12} step={1}
+                type="range"
+                min={4}
+                max={12}
+                step={1}
                 value={settings.maxDurationSec}
                 onChange={(e) => setSettings({ maxDurationSec: Number(e.target.value) })}
                 className="w-full"
@@ -87,7 +156,10 @@ export default function SettingsModal({
             </Field>
             <Field label={`Reading speed limit: ${settings.cpsLimit} CPS`}>
               <input
-                type="range" min={12} max={24} step={1}
+                type="range"
+                min={12}
+                max={24}
+                step={1}
                 value={settings.cpsLimit}
                 onChange={(e) => setSettings({ cpsLimit: Number(e.target.value) })}
                 className="w-full"
@@ -102,20 +174,78 @@ export default function SettingsModal({
           </div>
         </div>
 
+        {/* Google Colab Remote GPU Addon (Seamless & Non-breaking) */}
+        <div className="sm:col-span-2">
+          <SectionTitle icon="spark">Addon: Google Colab Remote GPU (Free Cloud Acceleration)</SectionTitle>
+          <div className="panel-inset space-y-3 px-4 py-3.5 text-xs">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="font-semibold" style={{ color: "var(--foreground)" }}>
+                Run large models (e.g. Large-v3-Turbo) on a free Google Colab Tesla T4 GPU without using your laptop&apos;s VRAM.
+              </span>
+              <span
+                className={`chip text-[0.7rem] ${
+                  engineInfo?.online ? "border-emerald-500/40 text-emerald-400" : "border-rose-500/40 text-rose-400"
+                }`}
+              >
+                ● {engineInfo?.online ? `Online (${engineInfo.modelInfo})` : "Local Engine (or Offline)"}
+                {engineInfo?.latencyMs != null && ` · ${engineInfo.latencyMs}ms`}
+              </span>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                type="text"
+                placeholder="https://xxxx-xx-xx-xx.loca.lt (or leave blank for local GPU)"
+                className="input flex-1 text-xs font-mono"
+                value={colabUrl}
+                onChange={(e) => setColabUrl(e.target.value)}
+              />
+              <Btn
+                size="sm"
+                variant="primary"
+                disabled={checkingEngine}
+                onClick={() => void saveColab(colabUrl.trim())}
+              >
+                {checkingEngine ? "Connecting..." : "Connect Colab URL"}
+              </Btn>
+              {engineInfo?.isColab && (
+                <Btn
+                  size="sm"
+                  disabled={checkingEngine}
+                  onClick={() => {
+                    setColabUrl("");
+                    void saveColab("");
+                  }}
+                >
+                  Reset to Local GPU
+                </Btn>
+              )}
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between text-[0.72rem] text-neutral-400 pt-1">
+              <span>
+                Notebook included: <code className="text-teal-300">colab_backend.ipynb</code> in project root.
+              </span>
+              <a
+                href="https://colab.research.google.com/#create=true"
+                target="_blank"
+                rel="noreferrer"
+                className="text-teal-400 hover:underline flex items-center gap-1 font-semibold"
+              >
+                Open Google Colab ↗
+              </a>
+            </div>
+          </div>
+        </div>
+
         <div className="sm:col-span-2">
           <SectionTitle icon="shield">Processing & privacy</SectionTitle>
           <div className="panel-inset space-y-2 px-4 py-3 text-[0.78rem] leading-relaxed" style={{ color: "var(--muted)" }}>
             <div className="flex items-center gap-2 font-bold" style={{ color: "var(--ok)" }}>
-              <Icon name="shield" size={14} /> Local by default
+              <Icon name="shield" size={14} /> Local or Colab Tunnel Only
             </div>
             <p>
-              Everything runs on the studio server and this browser. No media, transcript or subtitle is uploaded to any
-              third party. Logs never contain dialogue text — only counts, languages and timings.
-            </p>
-            <p className="text-[0.72rem]" style={{ color: "var(--faint)" }}>
-              Optional cloud ASR providers (OpenAI Whisper, Google, Azure) plug into the same engine interface. They are
-              disabled in this build until a provider key is configured server-side and FFmpeg is available for chunk
-              extraction. When enabled, the badge in the header switches from “Local processing” to “Cloud API”.
+              By default, everything runs locally on your PC. When using the Google Colab addon, communication happens directly through your private Colab tunnel with zero third-party data tracking.
             </p>
             <div className="flex justify-end pt-1">
               <Btn size="sm" onClick={onClose}>Done</Btn>

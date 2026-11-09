@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { getEngineUrl } from "@/lib/server";
 
 export const runtime = "nodejs";
 
@@ -11,7 +12,8 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "texts array required" }, { status: 400 });
     }
 
-    const response = await fetch("http://127.0.0.1:8001/translate", {
+    const engineUrl = getEngineUrl();
+    const response = await fetch(`${engineUrl}/translate`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({

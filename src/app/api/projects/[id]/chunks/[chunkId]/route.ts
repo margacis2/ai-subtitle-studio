@@ -5,7 +5,7 @@ import path from "node:path";
 import { db } from "@/db";
 import { projects, chunks, subtitles } from "@/db/schema";
 import { toChunk } from "@/lib/rows";
-import { log, newId, projectUploadDir } from "@/lib/server";
+import { log, newId, projectUploadDir, getEngineUrl } from "@/lib/server";
 
 export const runtime = "nodejs";
 type Params = { params: Promise<{ id: string; chunkId: string }> };
@@ -36,7 +36,8 @@ export async function POST(req: Request, { params }: Params) {
     formData.append("source_lang", project.sourceLang);
     formData.append("target_lang", project.targetLang);
 
-    const response = await fetch("http://127.0.0.1:8001/transcribe", {
+    const engineUrl = getEngineUrl();
+    const response = await fetch(`${engineUrl}/transcribe`, {
       method: "POST",
       body: formData,
     });

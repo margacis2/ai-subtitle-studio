@@ -64,3 +64,12 @@ export function humanBytes(n: number): string {
   if (n < 1073741824) return `${(n / 1048576).toFixed(1)} MB`;
   return `${(n / 1073741824).toFixed(2)} GB`;
 }
+
+export function getEngineUrl(): string {
+  const custom = process.env.COLAB_URL || process.env.REMOTE_ASR_URL;
+  if (custom && custom.trim()) {
+    return custom.trim().replace(/\/+$/, "");
+  }
+  return "http://127.0.0.1:8001";
+}
+

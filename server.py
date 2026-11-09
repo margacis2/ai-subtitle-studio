@@ -104,6 +104,14 @@ def translate_texts_with_opus(texts: List[str], src_lang: str, tgt_lang: str = "
 
 app = FastAPI(title="AI Subtitle & Translation Studio Backend")
 
+@app.get("/health")
+async def health_check():
+    return {
+        "status": "online",
+        "whisper_model": selected_model,
+        "device": "cuda",
+    }
+
 class TranslateRequest(BaseModel):
     texts: List[str]
     source_lang: str = "ja"
