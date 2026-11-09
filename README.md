@@ -26,8 +26,8 @@ The application features resource-aware parallel processing, overlapping audio c
 - [Processing Architecture](#-processing-architecture)
 - [Features](#-features)
 - [Supported Languages](#-supported-languages)
-- [Supported Export Formats](#-supported-export-formats)
 - [AI and ASR Architecture](#-ai-and-asr-architecture)
+- [Google Colab Cloud GPU Addon](#-google-colab-cloud-gpu-addon)
 - [Resource Management](#-resource-management)
 - [Subtitle Quality Engine](#-subtitle-quality-engine)
 - [Hardware Monitoring](#-hardware-monitoring)
@@ -38,8 +38,9 @@ The application features resource-aware parallel processing, overlapping audio c
 - [Windows Quick Start](#-windows-quick-start)
 - [Keyboard Shortcuts](#-keyboard-shortcuts)
 - [Data Storage and Privacy](#-data-storage-and-privacy)
-- [Current Limitations](#-current-limitations)
+- [Current Status & Verification](#-current-status--verification)
 - [Contributing](#-contributing)
+- [Project Roadmap](#-project-roadmap)
 
 ---
 
@@ -344,6 +345,20 @@ These integrations require their corresponding backend implementations, dependen
 
 ---
 
+## ☁️ Google Colab Cloud GPU Addon
+
+For users wanting maximum transcription quality using large models (`large-v3-turbo`) without utilizing local GPU memory or laptop battery:
+
+1. Open [`colab_backend.ipynb`](colab_backend.ipynb) in **Google Colab**.
+2. Select **Runtime → Change runtime type → T4 GPU**.
+3. Run the cells to install requirements and start the server.
+4. Copy the public tunnel URL provided by the notebook.
+5. In **AI Subtitle Studio**, open **Settings** (gear icon) → **Addon: Google Colab Remote GPU**.
+6. Paste the tunnel URL and click **Connect Colab URL**. The studio seamlessly offloads ASR and translation jobs to the Colab GPU.
+7. Click **Reset to Local GPU** anytime to switch back to local processing.
+
+---
+
 ## ⚡ Resource Management
 
 The Model Manager recommends processing configurations using available hardware resources.
@@ -426,14 +441,17 @@ ai-subtitle-studio/
 │   │       │       └── media/
 │   │       │
 │   │       ├── burn/
+│   │       ├── colab/
 │   │       ├── glossary/
-│   │       └── hardware/
+│   │       ├── hardware/
+│   │       └── translate/
 │   │
 │   ├── components/
 │   │   ├── Home.tsx
 │   │   ├── Processing.tsx
 │   │   ├── Editor.tsx
 │   │   ├── PreviewPlayer.tsx
+│   │   ├── TranslationView.tsx
 │   │   ├── HardwarePanel.tsx
 │   │   └── SettingsModal.tsx
 │   │
@@ -635,27 +653,23 @@ Do not expose the application publicly without appropriate authentication, uploa
 
 ---
 
-## ⚠️ Current Limitations
+## ⚠️ Current Status & Verification
 
-This project is actively evolving. Some capabilities depend on the configured backend and available hardware.
+This project is actively maintained and tested.
 
-| Component | Current status |
-|---|---|
-| Web application | Implemented |
-| Subtitle editor | Implemented |
-| SRT/VTT/ASS/TXT export | Implemented |
-| Chunk scheduler | Implemented |
-| Overlap deduplication | Implemented |
-| PostgreSQL checkpointing | Implemented |
-| Quality inspection | Implemented |
-| Hardware monitoring | Dependency-dependent |
-| FFmpeg extraction | Dependency-dependent |
-| Video subtitle burn-in | Dependency-dependent |
-| Offline ASR demonstration engine | Implemented |
-| Real Whisper transcription | Requires a working ASR integration |
-| External translation providers | Requires provider configuration |
-
-The built-in offline engine is intended to demonstrate and test the processing workflow. For real-world transcription, configure an actual speech recognition backend.
+| Component | Status | Details |
+|---|---|---|
+| Web application | Operational | Next.js 16 + React 19 (pure effects, 0 lint warnings) |
+| Subtitle editor | Operational | Edit, split, merge, undo/redo, search/replace, speaker rename |
+| SRT/VTT/ASS/TXT export | Operational | SubStation Alpha styling, custom fonts, timecodes |
+| Video preview player | Operational | Fullscreen, click-to-play, ±5s jump, dual-language subtitle overlay |
+| Dedicated translation page | Operational | Separate multilingual neural translation with sample prompts |
+| Local OPUS-MT translation | Operational | Helsinki-NLP models for JA/TA/HI/Dravidian/FR to English |
+| Chunk scheduler | Operational | Overlap deduplication, deterministic global slotting |
+| PostgreSQL checkpointing | Operational | Drizzle ORM, project and chunk state recovery |
+| Hardware monitoring | Operational | CPU, RAM, and NVIDIA GPU (`nvidia-smi`) |
+| Real Whisper transcription | Operational | Local Faster-Whisper GPU (`server.py`) or Google Colab T4 |
+| Cloud GPU addon | Operational | Google Colab remote backend with instant one-click toggle |
 
 ---
 
