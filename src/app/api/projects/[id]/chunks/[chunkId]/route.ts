@@ -34,9 +34,7 @@ export async function POST(req: Request, { params }: Params) {
     const formData = new FormData();
     formData.append("file", blob, project.fileName);
     formData.append("source_lang", project.sourceLang);
-    formData.append("source_lang", project.sourceLang === "auto" ? "ta" : project.sourceLang);
-    formData.append("source_lang", project.sourceLang === "auto" ? "ja" : project.sourceLang);
-    formData.append("task", project.targetLang === "en" ? "translate" : "transcribe");
+    formData.append("target_lang", project.targetLang);
 
     const response = await fetch("http://127.0.0.1:8001/transcribe", {
       method: "POST",
@@ -77,8 +75,8 @@ export async function POST(req: Request, { params }: Params) {
           startMs: s.startMs,
           endMs: s.endMs,
           speaker: null,
-          original: s.text,
-          translation: s.text,
+          original: s.original || s.text,
+          translation: s.translation || s.text,
           confidence: s.confidence || 90,
           kind: "speech",
         }))
@@ -123,8 +121,8 @@ export async function POST(req: Request, { params }: Params) {
         startMs: s.startMs,
         endMs: s.endMs,
         speaker: null,
-        original: s.text,
-        translation: s.text,
+        original: s.original || s.text,
+        translation: s.translation || s.text,
         confidence: s.confidence,
         kind: "speech",
         lang: primaryLang,

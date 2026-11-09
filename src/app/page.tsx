@@ -9,10 +9,11 @@ import Home from "@/components/Home";
 import Processing from "@/components/Processing";
 import Editor from "@/components/Editor";
 import SettingsModal, { Prefs } from "@/components/SettingsModal";
+import TranslationView from "@/components/TranslationView";
 import { Btn } from "@/components/ui";
 import { Icon } from "@/components/icons";
 
-type View = "home" | "process" | "editor";
+type View = "home" | "process" | "editor" | "translate";
 interface Toast {
   id: number;
   tone: "ok" | "err" | "warn" | "info";
@@ -63,16 +64,25 @@ export default function Page() {
   const [hw, setHw] = useState<HardwareInfo | null>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [benchmarks, setBenchmarksState] = useState<BenchmarkRow[]>(() => loadArr("ass:bench", []));
-  const [customPresets, setCustomPresetsState] = useState<Preset[]>(() => loadArr("ass:presets", []));
+  const [benchmarks, setBenchmarksState] = useState<BenchmarkRow[]>([]);
+  const [customPresets, setCustomPresetsState] = useState<Preset[]>([]);
 
-  /* persist + apply prefs */
+  /* hydrate localStorage values on client */
   useEffect(() => {
     const s = load("ass:settings", DEFAULT_SETTINGS);
-    setSettingsState(s);
     const p = load<Prefs>("ass:prefs", { theme: "dark", fs: "md", contrast: false });
-    setPrefsState(p);
+    const b = loadArr<BenchmarkRow>("ass:bench", []);
+    const cp = loadArr<Preset>("ass:presets", []);
+    const t = setTimeout(() => {
+      setSettingsState(s);
+      setPrefsState(p);
+      setBenchmarksState(b);
+      setCustomPresetsState(cp);
+    }, 0);
+    return () => clearTimeout(t);
   }, []);
+
+  /* persist + apply prefs */
   useEffect(() => {
     const el = document.documentElement;
     el.dataset.theme = prefs.theme;
@@ -113,13 +123,27 @@ export default function Page() {
   }, []);
 
   useEffect(() => {
-    void refresh();
-    void fetchHardware().then(setHw).catch(() => setHw(null));
+    let active = true;
+    fetchProjects()
+      .then((data) => {
+        if (active) setProjects(data);
+      })
+      .catch(() => undefined);
+    fetchHardware()
+      .then((data) => {
+        if (active) setHw(data);
+      })
+      .catch(() => {
+        if (active) setHw(null);
+      });
     const iv = setInterval(() => void fetchHardware().then(setHw).catch(() => undefined), 30000);
-    return () => clearInterval(iv);
-  }, [refresh]);
+    return () => {
+      active = false;
+      clearInterval(iv);
+    };
+  }, []);
 
-  /* global shortcut: Ctrl+O opens the file dialog (home view) */
+  // shortcut: Ctrl+O opens the file dialog (home view)
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "o" && view === "home") {
@@ -184,6 +208,14 @@ export default function Page() {
             Offline engine · EN/JA/TA/HI corpus
           </span>
           <div className="ml-auto flex items-center gap-2">
+            <Btn
+              size="sm"
+              icon="spark"
+              variant={view === "translate" ? "primary" : undefined}
+              onClick={() => setView((v) => (v === "translate" ? "home" : "translate"))}
+            >
+              Translate
+            </Btn>
             {hw && (
               <span className="chip hidden lg:inline-flex">
                 <Icon name="gpu" size={11} />
@@ -227,6 +259,15 @@ export default function Page() {
             void refresh();
           }}
           onToast={toast}
+        />
+      )}
+      {view === "translate" && (
+        <TranslationView
+          onToast={toast}
+          onBack={() => {
+            setView("home");
+            void refresh();
+          }}
         />
       )}
       {view === "editor" && active && (

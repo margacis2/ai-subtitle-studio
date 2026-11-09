@@ -83,6 +83,7 @@ export default function Processing({
   const [confirmCancel, setConfirmCancel] = useState(false);
   const [hw, setHw] = useState<HardwareInfo | null>(null);
   const [finished, setFinished] = useState(false);
+  const [elapsedSec, setElapsedSec] = useState(0);
 
   const stopRef = useRef(false);
   const pauseRef = useRef(false);
@@ -93,11 +94,19 @@ export default function Processing({
   const p = detail?.project ?? initial;
   const modelId = p.asrModel === "auto" ? "small" : p.asrModel;
   const model = modelById(modelId);
-  const elapsedSec = t0Ref.current ? (Date.now() - t0Ref.current) / 1000 : 0;
   const completed = p.completedChunks;
   const total = p.totalChunks;
   const speed = completed > 0 && elapsedSec > 3 ? (completed * p.chunkSizeSec) / elapsedSec : 0;
   const etaSec = speed > 0 ? ((total - completed) * p.chunkSizeSec) / speed : null;
+
+  useEffect(() => {
+    const iv = setInterval(() => {
+      if (t0Ref.current && !finished && !paused) {
+        setElapsedSec((Date.now() - t0Ref.current) / 1000);
+      }
+    }, 1000);
+    return () => clearInterval(iv);
+  }, [finished, paused]);
 
   const logEv = useCallback((level: StageEvent["level"], text: string) => {
     setLog((l) => [...l, { t: Date.now(), level, text }].slice(-250));
@@ -148,7 +157,7 @@ export default function Processing({
       }
       await refresh();
     },
-    [initial.id, logEv, model.name, p.device, refresh],
+    [initial.id, logEv, model.name, model.speedFactor, p.device, refresh],
   );
 
   const run = useCallback(async () => {
@@ -229,9 +238,11 @@ export default function Processing({
   }, [dispatch, initial.id, logEv, onDone, onProject, onToast, p.name, p.durationSec, refresh]);
 
   useEffect(() => {
-    void run();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    const t = setTimeout(() => {
+      void run();
+    }, 0);
+    return () => clearTimeout(t);
+  }, [run]);
 
   // hardware monitor
   useEffect(() => {

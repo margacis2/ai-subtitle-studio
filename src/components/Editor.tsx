@@ -24,6 +24,7 @@ import {
   fetchProject,
   mediaUrl,
   saveSubtitles,
+  translateTexts,
   type ProjectDetail,
 } from "@/lib/client";
 import PreviewPlayer, { activeLine } from "./PreviewPlayer";
@@ -46,27 +47,24 @@ function Cell({
   className?: string;
   style?: React.CSSProperties;
 }) {
-  const [v, setV] = useState(value);
-  const [focus, setFocus] = useState(false);
-  useEffect(() => {
-    if (!focus) setV(value);
-  }, [value, focus]);
+  const [draft, setDraft] = useState<string | null>(null);
+  const v = draft ?? value;
   return (
     <input
       className={`input !px-1.5 !py-1 !text-[0.78rem] ${mono ? "mono" : ""} ${className}`}
       style={style}
       value={v}
       placeholder={placeholder}
-      onFocus={() => setFocus(true)}
-      onChange={(e) => setV(e.target.value)}
+      onFocus={() => setDraft(value)}
+      onChange={(e) => setDraft(e.target.value)}
       onBlur={() => {
-        setFocus(false);
+        setDraft(null);
         if (v !== value) onCommit(v);
       }}
       onKeyDown={(e) => {
         if (e.key === "Enter") (e.target as HTMLInputElement).blur();
         if (e.key === "Escape") {
-          setV(value);
+          setDraft(null);
           (e.target as HTMLInputElement).blur();
         }
       }}
@@ -124,6 +122,7 @@ export default function Editor({
   const [playerTime, setPlayerTime] = useState(0);
   const [saveState, setSaveState] = useState<"saved" | "dirty" | "saving">("saved");
   const [burning, setBurning] = useState(false);
+  const [translatingWithOpus, setTranslatingWithOpus] = useState(false);
   const [burnUrl, setBurnUrl] = useState<string | null>(null);
   const [renameOpen, setRenameOpen] = useState(false);
   const [renameFrom, setRenameFrom] = useState("");
@@ -151,20 +150,6 @@ export default function Editor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project.id]);
 
-  /* autosave (debounced) */
-  useEffect(() => {
-    if (firstSave.current) {
-      firstSave.current = false;
-      return;
-    }
-    setSaveState("dirty");
-    const t = setTimeout(() => {
-      void save();
-    }, 1400);
-    return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lines]);
-
   const save = useCallback(async () => {
     setSaveState("saving");
     try {
@@ -176,6 +161,19 @@ export default function Editor({
       onToast("err", e instanceof Error ? e.message : "Save failed");
     }
   }, [lines, p.id, onToast]);
+
+  /* autosave (debounced) */
+  useEffect(() => {
+    if (firstSave.current) {
+      firstSave.current = false;
+      return;
+    }
+    setSaveState("dirty");
+    const t = setTimeout(() => {
+      void save();
+    }, 1400);
+    return () => clearTimeout(t);
+  }, [lines, save]);
 
   /* history */
   const mutate = useCallback(
@@ -426,6 +424,27 @@ export default function Editor({
     onToast("ok", `Exported ${lines.length} subtitles as .${ext}`);
   };
 
+  const translateAllWithOpus = async () => {
+    if (lines.length === 0) return;
+    setTranslatingWithOpus(true);
+    try {
+      const srcTexts = lines.map((l) => l.original || l.translation);
+      const effectiveLang = p.sourceLang === "auto" ? (langs[0] || "ja") : p.sourceLang;
+      const translations = await translateTexts(srcTexts, effectiveLang, "en");
+      mutate((ls) =>
+        ls.map((l, idx) => ({
+          ...l,
+          translation: translations[idx] || l.translation,
+        }))
+      );
+      onToast("ok", "Re-translated all lines with local OPUS-MT model!");
+    } catch (e) {
+      onToast("err", e instanceof Error ? e.message : "Translation error");
+    } finally {
+      setTranslatingWithOpus(false);
+    }
+  };
+
   const doBurn = async () => {
     if (!isVideo) {
       onToast("warn", "Burn-in needs a video source");
@@ -503,6 +522,9 @@ export default function Editor({
         <div className="mt-3 flex flex-wrap gap-2">
           <Btn variant="primary" icon="download" onClick={() => doExport()}>Open subtitle (SRT)</Btn>
           <Btn icon="save" onClick={() => void save()}>Save</Btn>
+          <Btn icon="spark" onClick={translateAllWithOpus} disabled={translatingWithOpus}>
+            {translatingWithOpus ? "Translating with OPUS..." : "Re-translate with Local OPUS"}
+          </Btn>
           <Btn icon="gauge" onClick={runQ}>Run quality check</Btn>
           <span className="ml-auto hidden items-center gap-1.5 text-[0.68rem] sm:flex" style={{ color: "var(--faint)" }}>
             <Kbd>Ctrl Z</Kbd> undo · <Kbd>Ctrl F</Kbd> search · <Kbd>←</Kbd><Kbd>→</Kbd> prev/next in preview

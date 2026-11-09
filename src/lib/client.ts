@@ -138,3 +138,18 @@ export async function uploadProject(file: File, meta: { durationSec: number }, s
 
 export const mediaUrl = (id: string, f?: string) =>
   `/api/projects/${id}/media${f ? `?f=${encodeURIComponent(f)}` : ""}`;
+
+export interface TranslateBatchResult {
+  source_lang: string;
+  target_lang: string;
+  translations: string[];
+}
+
+export async function translateTexts(texts: string[], sourceLang: string, targetLang: string = "en"): Promise<string[]> {
+  const res = await api<TranslateBatchResult>("/api/translate", {
+    method: "POST",
+    body: JSON.stringify({ texts, source_lang: sourceLang, target_lang: targetLang }),
+  });
+  return res.translations;
+}
+

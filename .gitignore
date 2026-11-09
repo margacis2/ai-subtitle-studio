@@ -6,3 +6,6 @@ logs/
 *.log
 .env
 .DS_Store
+*.dll
+*.tsbuildinfo
+
