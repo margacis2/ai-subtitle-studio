@@ -347,15 +347,39 @@ These integrations require their corresponding backend implementations, dependen
 
 ## ☁️ Google Colab Cloud GPU Addon
 
-For users wanting maximum transcription quality using large models (`large-v3-turbo`) without utilizing local GPU memory or laptop battery:
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/margacis2/ai-subtitle-studio/blob/main/colab_backend.ipynb)
 
-1. Open [`colab_backend.ipynb`](colab_backend.ipynb) in **Google Colab**.
-2. Select **Runtime → Change runtime type → T4 GPU**.
-3. Run the cells to install requirements and start the server.
-4. Copy the public tunnel URL provided by the notebook.
+For users wanting maximum transcription quality using large models (`large-v3-turbo`) without utilizing local GPU memory or laptop battery, AI Subtitle Studio includes an authenticated, high-speed Google Colab GPU pipeline:
+
+1. Click the **Open In Colab** badge above or open [`colab_backend.ipynb`](colab_backend.ipynb) in **Google Colab**.
+2. Select **Runtime → Change runtime type → T4 GPU** (free tier).
+3. Run the cells in order:
+   - **Cell 1**: Hardware diagnostics (verifies GPU & FFmpeg).
+   - **Cell 2**: Pinned dependencies & Cloudflare tunnel setup.
+   - **Cell 3**: Real Faster-Whisper & OPUS-MT neural engine configuration.
+   - **Cell 4**: Launch server & direct HTTPS Cloudflare quick tunnel (no IP password prompt or challenge screen).
+4. Copy the **Engine URL** (e.g. `https://xxxx.trycloudflare.com`) and **API Token** displayed in Colab.
 5. In **AI Subtitle Studio**, open **Settings** (gear icon) → **Addon: Google Colab Remote GPU**.
-6. Paste the tunnel URL and click **Connect Colab URL**. The studio seamlessly offloads ASR and translation jobs to the Colab GPU.
-7. Click **Reset to Local GPU** anytime to switch back to local processing.
+6. Paste the tunnel URL and API token, then click **Save & Verify Connection**. The studio seamlessly offloads ASR and translation jobs to the Colab GPU.
+7. Click **Reset to Local GPU** anytime to switch back to local GPU/CPU processing.
+
+### 🛡️ Automatic Pre-Upload Media Optimization (< 100 MB Target)
+Before sending media over the cloud tunnel, the server extracts and optimizes the audio track:
+- Original media remains completely intact and untouched.
+- Optimized audio is converted to **16 kHz mono WAV** (~32 KB/sec).
+- If duration exceeds 45 minutes and WAV exceeds 95 MB, it automatically compresses to **64 kbps mono MP3**, staying well below the 100 MB upload limit while maintaining peak ASR speech clarity.
+- Progress and byte savings (e.g., `142 MB → 18 MB, saved 87%`) are displayed live in the processing log.
+
+### 🧪 Automated Acceptance Testing
+You can run the end-to-end pipeline verification test anytime using the included test assets:
+```bash
+# Generate sample test video with speech synthesis
+powershell -ExecutionPolicy Bypass -File scripts\generate_sample_video.ps1
+
+# Run full pipeline verification test
+python scripts\verify_pipeline.py
+```
+This automatically verifies video conversion, < 100 MB size validation, Faster-Whisper execution, timestamp monotonicity, and OPUS-MT translation.
 
 ---
 

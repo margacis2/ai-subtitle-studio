@@ -8,4 +8,5 @@ logs/
 .DS_Store
 *.dll
 *.tsbuildinfo
+sample_optimized_audio.wav
 

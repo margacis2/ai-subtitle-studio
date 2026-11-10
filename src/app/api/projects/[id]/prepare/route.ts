@@ -4,7 +4,7 @@ import path from "node:path";
 import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { projects } from "@/db/schema";
-import { extractWav, energyVad, hasFfmpeg } from "@/lib/audio";
+import { extractWav, extractOptimizedAudio, energyVad, hasFfmpeg } from "@/lib/audio";
 import { hashSeed } from "@/lib/demo";
 import { log, projectUploadDir, projectWorkDir } from "@/lib/server";
 import type { VadSummary } from "@/lib/types";
@@ -18,14 +18,31 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
 
   let vad: VadSummary | null = null;
   let note = "";
+  let audioOptResult: import("@/lib/audio").AudioOptimizationResult | null = null;
   const mediaPath = path.join(projectUploadDir(id), project.fileName);
+  const workDir = projectWorkDir(id);
+
+  // Automatic media optimization before processing / Colab upload
+  if (hasFfmpeg() && fs.existsSync(mediaPath)) {
+    const optResult = await extractOptimizedAudio(
+      mediaPath,
+      path.join(workDir, "audio_optimized"),
+      95 * 1024 * 1024
+    );
+    if (optResult) {
+      audioOptResult = optResult;
+      log(
+        `media.optimized id=${id} orig=${optResult.originalSize} opt=${optResult.optimizedSize} fmt=${optResult.format} saved=${optResult.compressionRatio}%`
+      );
+    }
+  }
 
   if (project.vadEnabled) {
     const useFfmpeg = hasFfmpeg() && fs.existsSync(mediaPath);
     if (useFfmpeg) {
-      const wavPath = path.join(projectWorkDir(id), "audio_full.wav");
+      const wavPath = path.join(workDir, "audio_full.wav");
       const t0 = Date.now();
-      const ok = await extractWav(mediaPath, wavPath);
+      const ok = fs.existsSync(wavPath) ? wavPath : await extractWav(mediaPath, wavPath);
       if (ok) {
         const er = energyVad(ok);
         if (er) {
@@ -72,5 +89,18 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
   const [updated] = await db.update(projects).set(patch).where(eq(projects.id, id)).returning();
   if (!updated) return NextResponse.json({ error: "Project not found" }, { status: 404 });
 
-  return NextResponse.json({ vad: vad!, note, status: updated.status });
+  return NextResponse.json({
+    vad: vad!,
+    note,
+    status: updated.status,
+    audioOptimization: audioOptResult
+      ? {
+          path: audioOptResult.path,
+          originalSize: audioOptResult.originalSize,
+          optimizedSize: audioOptResult.optimizedSize,
+          compressionRatio: audioOptResult.compressionRatio,
+          format: audioOptResult.format,
+        }
+      : null,
+  });
 }

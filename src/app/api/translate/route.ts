@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getEngineUrl } from "@/lib/server";
+import { getEngineUrl, getEngineToken } from "@/lib/server";
 
 export const runtime = "nodejs";
 
@@ -13,9 +13,15 @@ export async function POST(req: Request) {
     }
 
     const engineUrl = getEngineUrl();
+    const engineToken = getEngineToken();
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (engineToken) {
+      headers["Authorization"] = `Bearer ${engineToken}`;
+    }
+
     const response = await fetch(`${engineUrl}/translate`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers,
       body: JSON.stringify({
         texts,
         source_lang,

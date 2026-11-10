@@ -42,6 +42,85 @@ export async function extractWav(mediaPath: string, wavPath: string, timeoutMs =
   return r.ok && fs.existsSync(wavPath) ? wavPath : null;
 }
 
+export interface AudioOptimizationResult {
+  path: string;
+  originalSize: number;
+  optimizedSize: number;
+  compressionRatio: number;
+  format: "wav" | "mp3";
+}
+
+/**
+ * Extracts, resamples to mono 16kHz, and optimizes audio under targetMaxBytes (default 95 MB).
+ * If uncompressed 16-bit PCM WAV fits within limit, outputs WAV for optimal acoustic clarity.
+ * If WAV exceeds limit (e.g. multi-hour long media), automatically falls back to high-fidelity
+ * 16kHz mono MP3 (VBR quality 2 / CBR 64k) preserving speech intelligibility under 95 MB.
+ */
+export async function extractOptimizedAudio(
+  mediaPath: string,
+  outputBasePath: string,
+  targetMaxBytes = 95 * 1024 * 1024,
+  timeoutMs = 300000
+): Promise<AudioOptimizationResult | null> {
+  try {
+    const origStat = fs.statSync(mediaPath);
+    const wavPath = outputBasePath.endsWith(".wav") ? outputBasePath : `${outputBasePath}.wav`;
+
+    // Step 1: Extract mono 16k WAV
+    const wavResult = await extractWav(mediaPath, wavPath, timeoutMs);
+    if (!wavResult || !fs.existsSync(wavPath)) {
+      return null;
+    }
+
+    const wavStat = fs.statSync(wavPath);
+    if (wavStat.size <= targetMaxBytes) {
+      return {
+        path: wavPath,
+        originalSize: origStat.size,
+        optimizedSize: wavStat.size,
+        compressionRatio: Math.round(((origStat.size - wavStat.size) / origStat.size) * 100),
+        format: "wav",
+      };
+    }
+
+    // Step 2: If WAV > 95MB, encode to compact 16kHz mono MP3 (sufficient for hours of audio < 50MB)
+    const mp3Path = outputBasePath.replace(/\.[^.]+$/, "") + "_opt.mp3";
+    const r = await run("ffmpeg", [
+      "-y",
+      "-nostdin",
+      "-i", wavPath,
+      "-vn",
+      "-ac", "1",
+      "-ar", "16000",
+      "-c:a", "libmp3lame",
+      "-b:a", "64k",
+      mp3Path,
+    ], timeoutMs);
+
+    if (r.ok && fs.existsSync(mp3Path)) {
+      const mp3Stat = fs.statSync(mp3Path);
+      return {
+        path: mp3Path,
+        originalSize: origStat.size,
+        optimizedSize: mp3Stat.size,
+        compressionRatio: Math.round(((origStat.size - mp3Stat.size) / origStat.size) * 100),
+        format: "mp3",
+      };
+    }
+
+    return {
+      path: wavPath,
+      originalSize: origStat.size,
+      optimizedSize: wavStat.size,
+      compressionRatio: Math.round(((origStat.size - wavStat.size) / origStat.size) * 100),
+      format: "wav",
+    };
+  } catch {
+    return null;
+  }
+}
+
+
 export interface VadResult {
   speechRatio: number;
   speechSec: number;

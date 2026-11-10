@@ -1,0 +1,10 @@
+﻿Hello and welcome to AI Subtitle Studio.
+This video is an automated speech recognition and subtitle verification test.
+We are testing real-time transcription powered by Faster-Whisper.
+The audio from this media file is extracted and preprocessed to a sixteen kilohertz mono signal.
+The target file size is optimized to remain well below one hundred megabytes.
+This ensures ultra-fast transmission to the Google Colab GPU cloud backend.
+Voice activity detection automatically locates speech regions and trims silence.
+Neural machine translation can convert these subtitles into multiple languages such as Japanese, Tamil, and Spanish.
+Accurate word-level timestamps are calculated for every sentence.
+Thank you for using AI Subtitle Studio. Processing test complete.

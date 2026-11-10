@@ -1,0 +1,43 @@
+1
+00:00:00,000 --> 00:00:03,440
+Hello and welcome to AI Subtitle Studio.
+
+2
+00:00:03,440 --> 00:00:08,880
+This video is an automated speech recognition and subtitle verification test.
+
+3
+00:00:08,880 --> 00:00:13,360
+We are testing real-time transcription powered by FasterWhisperer.
+
+4
+00:00:13,360 --> 00:00:19,760
+The audio from this media file is extracted and pre-processed to a 16 kHz mono signal.
+
+5
+00:00:19,760 --> 00:00:25,120
+The target file size is optimized to remain well below 100 megabytes.
+
+6
+00:00:25,120 --> 00:00:30,560
+This ensures ultra-fast transmission to the Google Colab GPU cloud backend.
+
+7
+00:00:30,560 --> 00:00:35,880
+Voice activity detection automatically locates speech regions and trims silence.
+
+8
+00:00:35,880 --> 00:00:44,360
+Neural machine translation can convert these subtitles into multiple languages such as Japanese, Tamil, and Spanish.
+
+9
+00:00:44,360 --> 00:00:48,920
+Accurate word-level timestamps are calculated for every sentence.
+
+10
+00:00:48,920 --> 00:00:52,360
+Thank you for using AI Subtitle Studio.
+
+11
+00:00:52,360 --> 00:00:54,560
+Processing test complete.

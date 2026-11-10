@@ -51,8 +51,20 @@ export const deleteProject = (id: string) => api<{ ok: true }>(`/api/projects/${
 export const cancelProject = (id: string) =>
   api<Project>(`/api/projects/${id}/cancel`, { method: "POST" });
 
+export interface AudioOptimizationDetail {
+  path: string;
+  originalSize: number;
+  optimizedSize: number;
+  compressionRatio: number;
+  format: "wav" | "mp3";
+}
+
 export const prepareProject = (id: string) =>
-  api<{ vad: VadSummary; note: string }>(`/api/projects/${id}/prepare`, { method: "POST" });
+  api<{
+    vad: VadSummary;
+    note: string;
+    audioOptimization?: AudioOptimizationDetail | null;
+  }>(`/api/projects/${id}/prepare`, { method: "POST" });
 
 export interface ChunkResult {
   chunk: Chunk;

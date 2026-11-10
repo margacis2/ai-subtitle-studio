@@ -29,12 +29,16 @@ export default function SettingsModal({
   onToast: (tone: "ok" | "err" | "warn" | "info", text: string) => void;
 }) {
   const [colabUrl, setColabUrl] = useState("");
+  const [colabToken, setColabToken] = useState("");
   const [engineInfo, setEngineInfo] = useState<{
     engineUrl: string;
+    token?: string;
+    hasToken?: boolean;
     isColab: boolean;
     online: boolean;
     latencyMs: number | null;
     modelInfo: string;
+    device?: string;
   } | null>(null);
   const [checkingEngine, setCheckingEngine] = useState(false);
 
@@ -46,6 +50,9 @@ export default function SettingsModal({
         setEngineInfo(data);
         if (data.isColab) {
           setColabUrl(data.engineUrl);
+        }
+        if (data.token) {
+          setColabToken(data.token);
         }
       }
     } catch {
@@ -64,6 +71,9 @@ export default function SettingsModal({
           if (data.isColab) {
             setColabUrl(data.engineUrl);
           }
+          if (data.token) {
+            setColabToken(data.token);
+          }
         })
         .catch(() => undefined);
     }
@@ -72,19 +82,19 @@ export default function SettingsModal({
     };
   }, [open]);
 
-  const saveColab = async (urlToSave: string) => {
+  const saveColab = async (urlToSave: string, tokenToSave: string) => {
     setCheckingEngine(true);
     try {
       const res = await fetch("/api/colab", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: urlToSave }),
+        body: JSON.stringify({ url: urlToSave, token: tokenToSave }),
       });
       if (res.ok) {
         await fetchEngineStatus();
         onToast("ok", urlToSave ? "Connected to Google Colab GPU backend!" : "Switched to local GPU backend.");
       } else {
-        onToast("err", "Failed to update engine URL");
+        onToast("err", "Failed to update engine settings");
       }
     } catch (e) {
       onToast("err", e instanceof Error ? e.message : "Connection failed");
@@ -192,21 +202,37 @@ export default function SettingsModal({
               </span>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2">
-              <input
-                type="text"
-                placeholder="https://xxxx-xx-xx-xx.loca.lt (or leave blank for local GPU)"
-                className="input flex-1 text-xs font-mono"
-                value={colabUrl}
-                onChange={(e) => setColabUrl(e.target.value)}
-              />
+            <div className="grid gap-2 sm:grid-cols-3">
+              <div className="sm:col-span-2">
+                <label className="mb-1 block text-[0.7rem] font-medium text-neutral-400">Tunnel / Engine URL</label>
+                <input
+                  type="text"
+                  placeholder="https://xxxx.trycloudflare.com (or leave blank for local)"
+                  className="input w-full text-xs font-mono"
+                  value={colabUrl}
+                  onChange={(e) => setColabUrl(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-[0.7rem] font-medium text-neutral-400">API Secret Token (Optional)</label>
+                <input
+                  type="text"
+                  placeholder="e.g. colab-t4-xxx"
+                  className="input w-full text-xs font-mono"
+                  value={colabToken}
+                  onChange={(e) => setColabToken(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 pt-1">
               <Btn
                 size="sm"
                 variant="primary"
                 disabled={checkingEngine}
-                onClick={() => void saveColab(colabUrl.trim())}
+                onClick={() => void saveColab(colabUrl.trim(), colabToken.trim())}
               >
-                {checkingEngine ? "Connecting..." : "Connect Colab URL"}
+                {checkingEngine ? "Connecting..." : "Save & Verify Connection"}
               </Btn>
               {engineInfo?.isColab && (
                 <Btn
@@ -214,7 +240,8 @@ export default function SettingsModal({
                   disabled={checkingEngine}
                   onClick={() => {
                     setColabUrl("");
-                    void saveColab("");
+                    setColabToken("");
+                    void saveColab("", "");
                   }}
                 >
                   Reset to Local GPU
@@ -222,17 +249,17 @@ export default function SettingsModal({
               )}
             </div>
 
-            <div className="flex flex-wrap items-center justify-between text-[0.72rem] text-neutral-400 pt-1">
+            <div className="flex flex-wrap items-center justify-between text-[0.72rem] text-neutral-400 pt-1 border-t border-neutral-800">
               <span>
-                Notebook included: <code className="text-teal-300">colab_backend.ipynb</code> in project root.
+                Notebook: <code className="text-teal-300 font-mono">colab_backend.ipynb</code> (supports Cloudflare Tunnel &amp; Ngrok)
               </span>
               <a
-                href="https://colab.research.google.com/#create=true"
+                href="https://colab.research.google.com/github/margacis2/ai-subtitle-studio/blob/main/colab_backend.ipynb"
                 target="_blank"
                 rel="noreferrer"
                 className="text-teal-400 hover:underline flex items-center gap-1 font-semibold"
               >
-                Open Google Colab ↗
+                Open colab_backend.ipynb in Google Colab ↗
               </a>
             </div>
           </div>

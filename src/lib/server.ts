@@ -73,3 +73,8 @@ export function getEngineUrl(): string {
   return "http://127.0.0.1:8001";
 }
 
+export function getEngineToken(): string {
+  return (process.env.COLAB_API_TOKEN || process.env.COLAB_TOKEN || "").trim();
+}
+
+

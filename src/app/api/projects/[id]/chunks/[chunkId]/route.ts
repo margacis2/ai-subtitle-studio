@@ -5,7 +5,7 @@ import path from "node:path";
 import { db } from "@/db";
 import { projects, chunks, subtitles } from "@/db/schema";
 import { toChunk } from "@/lib/rows";
-import { log, newId, projectUploadDir, getEngineUrl } from "@/lib/server";
+import { log, newId, projectUploadDir, projectWorkDir, getEngineUrl, getEngineToken } from "@/lib/server";
 
 export const runtime = "nodejs";
 type Params = { params: Promise<{ id: string; chunkId: string }> };
@@ -22,31 +22,75 @@ export async function POST(req: Request, { params }: Params) {
 
   try {
     const uploadDir = projectUploadDir(id);
-    const mediaPath = path.join(uploadDir, project.fileName);
+    const workDir = projectWorkDir(id);
+    const origPath = path.join(uploadDir, project.fileName);
 
-    if (!fs.existsSync(mediaPath)) {
-      throw new Error("Source media not found on server");
+    // Prefer pre-optimized audio under 100MB (WAV or MP3) if extracted, else fall back to original
+    let sendPath = origPath;
+    const optWav = path.join(workDir, "audio_optimized.wav");
+    const optMp3 = path.join(workDir, "audio_optimized_opt.mp3");
+    const fullWav = path.join(workDir, "audio_full.wav");
+
+    if (fs.existsSync(optMp3)) {
+      sendPath = optMp3;
+    } else if (fs.existsSync(optWav)) {
+      sendPath = optWav;
+    } else if (fs.existsSync(fullWav)) {
+      sendPath = fullWav;
     }
 
-    // Prepare media file payload for Python Whisper backend
-    const fileBuffer = fs.readFileSync(mediaPath);
-    const blob = new Blob([fileBuffer]);
-    const formData = new FormData();
-    formData.append("file", blob, project.fileName);
-    formData.append("source_lang", project.sourceLang);
-    formData.append("target_lang", project.targetLang);
-
-    const engineUrl = getEngineUrl();
-    const response = await fetch(`${engineUrl}/transcribe`, {
-      method: "POST",
-      body: formData,
-    });
-
-    if (!response.ok) {
-      throw new Error(`Whisper backend returned status ${response.status}`);
+    if (!fs.existsSync(sendPath)) {
+      throw new Error("Source media or converted audio not found on server");
     }
 
-    const data = await response.json();
+    const cachePath = path.join(workDir, "transcription_cache.json");
+    let data: any = null;
+
+    if (fs.existsSync(cachePath)) {
+      try {
+        data = JSON.parse(fs.readFileSync(cachePath, "utf-8"));
+      } catch {
+        data = null;
+      }
+    }
+
+    if (!data) {
+      // Prepare media file payload for Python Whisper backend
+      const fileBuffer = fs.readFileSync(sendPath);
+      const sendName = path.basename(sendPath);
+      const blob = new Blob([fileBuffer]);
+      const formData = new FormData();
+      formData.append("file", blob, sendName);
+      formData.append("source_lang", project.sourceLang);
+      formData.append("target_lang", project.targetLang);
+
+      const engineUrl = getEngineUrl();
+      const engineToken = getEngineToken();
+      const headers: Record<string, string> = {};
+      if (engineToken) {
+        headers["Authorization"] = `Bearer ${engineToken}`;
+      }
+
+      const response = await fetch(`${engineUrl}/transcribe`, {
+        method: "POST",
+        headers,
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const errDetail = await response.text().catch(() => "");
+        throw new Error(
+          `Whisper backend returned status ${response.status}${errDetail ? `: ${errDetail.slice(0, 150)}` : ""}`
+        );
+      }
+
+      data = await response.json();
+      try {
+        fs.writeFileSync(cachePath, JSON.stringify(data), "utf-8");
+      } catch {
+        // non-fatal cache write failure
+      }
+    }
     const primaryLang = data.language || "ja";
     const rawSegments = data.segments || [];
 

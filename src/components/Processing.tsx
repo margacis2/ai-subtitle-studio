@@ -174,6 +174,14 @@ export default function Processing({
         const pr = await prepareProject(initial.id);
         const v = pr.vad;
         logEv("ok", "Audio prepared");
+        if (pr.audioOptimization) {
+          const origMb = (pr.audioOptimization.originalSize / (1024 * 1024)).toFixed(1);
+          const optMb = (pr.audioOptimization.optimizedSize / (1024 * 1024)).toFixed(1);
+          logEv(
+            "ok",
+            `Media optimized: ${origMb} MB → ${optMb} MB (${pr.audioOptimization.format.toUpperCase()} 16kHz mono, saved ${pr.audioOptimization.compressionRatio}%) — under 100 MB upload limit`
+          );
+        }
         if (v.speechRatio > 0) {
           logEv(v.real ? "ok" : "warn", `VAD — ${Math.round(v.speechRatio * 100)}% speech · ${v.intervals} voice intervals${v.real ? " (energy VAD on real PCM)" : ""}`);
           if (!v.real) logEv("info", pr.note);
