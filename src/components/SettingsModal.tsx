@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Field, Modal, SectionTitle, Select, Toggle, Btn } from "./ui";
 import { Icon } from "./icons";
 import type { StudioSettings } from "@/lib/types";
+import AudioDiagnosticsModal from "./AudioDiagnosticsModal";
 
 export interface Prefs {
   theme: "dark" | "light";
@@ -30,6 +31,7 @@ export default function SettingsModal({
 }) {
   const [colabUrl, setColabUrl] = useState("");
   const [colabToken, setColabToken] = useState("");
+  const [diagOpen, setDiagOpen] = useState(false);
   const [engineInfo, setEngineInfo] = useState<{
     engineUrl: string;
     token?: string;
@@ -104,6 +106,7 @@ export default function SettingsModal({
   };
 
   return (
+    <>
     <Modal open={open} onClose={onClose} title="Settings & Engine" wide>
       <div className="grid gap-5 sm:grid-cols-2">
         <div>
@@ -266,6 +269,24 @@ export default function SettingsModal({
         </div>
 
         <div className="sm:col-span-2">
+          <SectionTitle icon="wave">Audio & System Diagnostics</SectionTitle>
+          <div className="panel-inset flex flex-wrap items-center justify-between gap-3 px-4 py-3 text-xs">
+            <div>
+              <p className="font-semibold text-neutral-200">Audio Pipeline & System Verification</p>
+              <p className="text-neutral-400">Validate FFmpeg, FFprobe, audio extraction, VAD, and local AI backend connectivity.</p>
+            </div>
+            <Btn
+              size="sm"
+              variant="primary"
+              icon="zap"
+              onClick={() => setDiagOpen(true)}
+            >
+              Test Audio Processing
+            </Btn>
+          </div>
+        </div>
+
+        <div className="sm:col-span-2">
           <SectionTitle icon="shield">Processing & privacy</SectionTitle>
           <div className="panel-inset space-y-2 px-4 py-3 text-[0.78rem] leading-relaxed" style={{ color: "var(--muted)" }}>
             <div className="flex items-center gap-2 font-bold" style={{ color: "var(--ok)" }}>
@@ -281,5 +302,7 @@ export default function SettingsModal({
         </div>
       </div>
     </Modal>
+    <AudioDiagnosticsModal open={diagOpen} onClose={() => setDiagOpen(false)} />
+    </>
   );
 }

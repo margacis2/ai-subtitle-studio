@@ -1,11 +1,20 @@
 import { NextResponse } from "next/server";
-import { and, desc, eq, gte } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import fs from "node:fs";
 import path from "node:path";
 import { db } from "@/db";
 import { projects, chunks, subtitles } from "@/db/schema";
 import { toChunk } from "@/lib/rows";
-import { log, newId, projectUploadDir, projectWorkDir, getEngineUrl, getEngineToken } from "@/lib/server";
+import {
+  log,
+  newId,
+  projectUploadDir,
+  projectWorkDir,
+  getEngineUrl,
+  getEngineToken,
+  ensureBackendRunning,
+  isBackendAlive,
+} from "@/lib/server";
 
 export const runtime = "nodejs";
 type Params = { params: Promise<{ id: string; chunkId: string }> };
@@ -13,12 +22,25 @@ type Params = { params: Promise<{ id: string; chunkId: string }> };
 export async function POST(req: Request, { params }: Params) {
   const { id, chunkId } = await params;
   const [project] = await db.select().from(projects).where(eq(projects.id, id));
-  if (!project) return NextResponse.json({ error: "Project not found" }, { status: 404 });
+  if (!project) {
+    return NextResponse.json(
+      { error: "Project not found", code: "PROJECT_NOT_FOUND", stage: "transcription", retryable: false },
+      { status: 404 }
+    );
+  }
 
   const [chunk] = await db.select().from(chunks).where(eq(chunks.id, chunkId));
-  if (!chunk) return NextResponse.json({ error: "Chunk not found" }, { status: 404 });
+  if (!chunk) {
+    return NextResponse.json(
+      { error: "Chunk not found", code: "CHUNK_NOT_FOUND", stage: "transcription", retryable: false },
+      { status: 404 }
+    );
+  }
 
-  await db.update(chunks).set({ status: "PROCESSING", attempts: chunk.attempts + 1 }).where(eq(chunks.id, chunkId));
+  await db
+    .update(chunks)
+    .set({ status: "PROCESSING", attempts: chunk.attempts + 1 })
+    .where(eq(chunks.id, chunkId));
 
   try {
     const uploadDir = projectUploadDir(id);
@@ -40,7 +62,8 @@ export async function POST(req: Request, { params }: Params) {
     }
 
     if (!fs.existsSync(sendPath)) {
-      throw new Error("Source media or converted audio not found on server");
+      const err = `Audio source file not found on server at: ${sendPath}`;
+      throw new Error(err);
     }
 
     const cachePath = path.join(workDir, "transcription_cache.json");
@@ -55,16 +78,33 @@ export async function POST(req: Request, { params }: Params) {
     }
 
     if (!data) {
-      // Prepare media file payload for Python Whisper backend
+      // 1. Ensure local Python AI backend is active
+      const engineUrl = getEngineUrl();
+      const isAlive = await isBackendAlive(engineUrl);
+      if (!isAlive) {
+        log(`transcribe.launching_backend url=${engineUrl}`);
+        const started = await ensureBackendRunning();
+        if (!started) {
+          throw new Error(
+            `Python AI backend is offline at ${engineUrl}. Please start it using 'python -m backend.app.main' or launch via 'npm run desktop:dev'.`
+          );
+        }
+      }
+
+      // 2. Prepare request payload
+      const formData = new FormData();
+      formData.append("source_lang", project.sourceLang || "auto");
+      formData.append("target_lang", project.targetLang || "original");
+      formData.append("model_id", project.asrModel === "auto" ? "small" : project.asrModel || "small");
+      formData.append("word_timestamps", "true");
+
+      if (fs.existsSync(sendPath)) {
+        formData.append("file_path", sendPath);
+      }
       const fileBuffer = fs.readFileSync(sendPath);
       const sendName = path.basename(sendPath);
-      const blob = new Blob([fileBuffer]);
-      const formData = new FormData();
-      formData.append("file", blob, sendName);
-      formData.append("source_lang", project.sourceLang);
-      formData.append("target_lang", project.targetLang);
+      formData.append("file", new Blob([fileBuffer]), sendName);
 
-      const engineUrl = getEngineUrl();
       const engineToken = getEngineToken();
       const headers: Record<string, string> = {};
       if (engineToken) {
@@ -78,9 +118,15 @@ export async function POST(req: Request, { params }: Params) {
       });
 
       if (!response.ok) {
-        const errDetail = await response.text().catch(() => "");
+        let errDetail = "";
+        try {
+          const j = await response.json();
+          errDetail = j.detail || j.error || j.message || "";
+        } catch {
+          errDetail = await response.text().catch(() => "");
+        }
         throw new Error(
-          `Whisper backend returned status ${response.status}${errDetail ? `: ${errDetail.slice(0, 150)}` : ""}`
+          `Whisper backend returned status ${response.status}${errDetail ? `: ${errDetail.slice(0, 200)}` : ""}`
         );
       }
 
@@ -91,7 +137,8 @@ export async function POST(req: Request, { params }: Params) {
         // non-fatal cache write failure
       }
     }
-    const primaryLang = data.language || "ja";
+
+    const primaryLang = data.language || project.sourceLang || "ja";
     const rawSegments = data.segments || [];
 
     // Filter segments belonging to this chunk window
@@ -99,7 +146,7 @@ export async function POST(req: Request, { params }: Params) {
     const chunkEndMs = Math.ceil(chunk.endSec * 1000);
 
     const segments = rawSegments.filter(
-      (s: any) => s.startMs >= chunkStartMs - 1000 && s.startMs < chunkEndMs
+      (s: any) => s.startMs >= chunkStartMs - 1200 && s.startMs < chunkEndMs
     );
 
     const maxSeq = await db
@@ -119,9 +166,9 @@ export async function POST(req: Request, { params }: Params) {
           seq: nextSeq + i,
           startMs: s.startMs,
           endMs: s.endMs,
-          speaker: null,
-          original: s.original || s.text,
-          translation: s.translation || s.text,
+          speaker: s.speaker || null,
+          original: s.original || s.text || "",
+          translation: s.translation || s.text || "",
           confidence: s.confidence || 90,
           kind: "speech",
         }))
@@ -135,7 +182,7 @@ export async function POST(req: Request, { params }: Params) {
         language: primaryLang,
         confidence: 95,
         overlapRemoved: 0,
-        durationMs: 1000,
+        durationMs: Math.round((chunk.endSec - chunk.startSec) * 1000),
       })
       .where(eq(chunks.id, chunkId))
       .returning();
@@ -165,23 +212,33 @@ export async function POST(req: Request, { params }: Params) {
       segments: segments.map((s: any) => ({
         startMs: s.startMs,
         endMs: s.endMs,
-        speaker: null,
-        original: s.original || s.text,
-        translation: s.translation || s.text,
-        confidence: s.confidence,
+        speaker: s.speaker || null,
+        original: s.original || s.text || "",
+        translation: s.translation || s.text || "",
+        confidence: s.confidence || 90,
         kind: "speech",
         lang: primaryLang,
       })),
       language: primaryLang,
       confidence: 95,
       overlapRemoved: 0,
-      durationMs: 1000,
+      durationMs: Math.round((chunk.endSec - chunk.startSec) * 1000),
       note: null,
     });
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : "Unknown error";
+  } catch (e: any) {
+    const msg = e instanceof Error ? e.message : String(e);
     await db.update(chunks).set({ status: "FAILED" }).where(eq(chunks.id, chunkId));
-    log(`chunk.failed project=${id} err=${msg}`);
-    return NextResponse.json({ error: msg, code: "CHUNK_FAILED" }, { status: 500 });
+    log(`chunk.failed project=${id} chunk=${chunkId} err="${msg}"`);
+    return NextResponse.json(
+      {
+        error: msg,
+        code: msg.includes("offline") ? "BACKEND_UNAVAILABLE" : "CHUNK_FAILED",
+        stage: "transcription",
+        projectId: id,
+        chunkId,
+        retryable: !msg.includes("not found"),
+      },
+      { status: 500 }
+    );
   }
 }

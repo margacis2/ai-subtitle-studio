@@ -4,20 +4,36 @@ import type { Chunk, GlossaryRow, HardwareInfo, Project, SubLine, StudioSettings
 export class ApiError extends Error {
   status: number;
   code?: string;
-  constructor(status: number, message: string, code?: string) {
+  stage?: string;
+  retryable?: boolean;
+
+  constructor(status: number, message: string, code?: string, stage?: string, retryable?: boolean) {
     super(message);
+    this.name = "ApiError";
     this.status = status;
     this.code = code;
+    this.stage = stage;
+    this.retryable = retryable;
   }
 }
 
 async function parse<T>(res: Response): Promise<T> {
   const ct = res.headers.get("content-type") || "";
   let body: unknown = null;
-  if (ct.includes("application/json")) body = await res.json().catch(() => null);
+
+  if (ct.includes("application/json")) {
+    body = await res.json().catch(() => null);
+  } else {
+    const raw = await res.text().catch(() => "");
+    if (raw && raw.trim()) {
+      body = { error: raw.trim() };
+    }
+  }
+
   if (!res.ok) {
-    const b = body as { error?: string; message?: string; code?: string } | null;
-    throw new ApiError(res.status, b?.message || b?.error || `Request failed (${res.status})`, b?.code);
+    const b = body as { error?: string; message?: string; code?: string; stage?: string; retryable?: boolean } | null;
+    const errText = b?.error || b?.message || `Request failed (${res.status})`;
+    throw new ApiError(res.status, errText, b?.code, b?.stage, b?.retryable);
   }
   return body as T;
 }

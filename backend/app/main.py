@@ -1,5 +1,16 @@
 import os
 import sys
+
+# Ensure current directory DLLs are available on Windows before any CTranslate2 / torch imports
+ROOT_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+if sys.platform == "win32":
+    os.environ["PATH"] = ROOT_DIR + os.pathsep + os.environ.get("PATH", "")
+    if hasattr(os, "add_dll_directory") and os.path.isdir(ROOT_DIR):
+        try:
+            os.add_dll_directory(ROOT_DIR)
+        except Exception:
+            pass
+
 import tempfile
 import secrets
 from typing import List, Optional

@@ -77,4 +77,69 @@ export function getEngineToken(): string {
   return (process.env.COLAB_API_TOKEN || process.env.COLAB_TOKEN || "").trim();
 }
 
+export async function isBackendAlive(url = getEngineUrl()): Promise<boolean> {
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 1500);
+    const res = await fetch(`${url}/health`, { signal: controller.signal });
+    clearTimeout(timer);
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+let startingBackendPromise: Promise<boolean> | null = null;
+
+export async function ensureBackendRunning(): Promise<boolean> {
+  const url = getEngineUrl();
+  if (await isBackendAlive(url)) {
+    return true;
+  }
+
+  // If already launching, await existing startup
+  if (startingBackendPromise) {
+    return startingBackendPromise;
+  }
+
+  startingBackendPromise = (async () => {
+    try {
+      const { spawn } = await import("node:child_process");
+      const rootDir = process.cwd();
+      const pythonExecutable = process.platform === "win32" ? "python" : "python3";
+      const env = {
+        ...process.env,
+        STUDIO_PORT: "8001",
+        PATH: rootDir + path.delimiter + (process.env.PATH || ""),
+      };
+
+      log("backend.auto_spawning command=python -m backend.app.main");
+      const proc = spawn(pythonExecutable, ["-m", "backend.app.main"], {
+        cwd: rootDir,
+        env,
+        stdio: "ignore",
+        windowsHide: true,
+      });
+      proc.unref();
+
+      // Poll up to 8 seconds for backend to become ready
+      for (let i = 0; i < 16; i++) {
+        await new Promise((r) => setTimeout(r, 500));
+        if (await isBackendAlive(url)) {
+          log("backend.auto_spawned status=online");
+          return true;
+        }
+      }
+      return false;
+    } catch (err: any) {
+      log(`backend.spawn_error err=${err.message}`);
+      return false;
+    } finally {
+      startingBackendPromise = null;
+    }
+  })();
+
+  return startingBackendPromise;
+}
+
 

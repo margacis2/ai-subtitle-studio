@@ -179,7 +179,7 @@ export default function Processing({
           const optMb = (pr.audioOptimization.optimizedSize / (1024 * 1024)).toFixed(1);
           logEv(
             "ok",
-            `Media optimized: ${origMb} MB → ${optMb} MB (${pr.audioOptimization.format.toUpperCase()} 16kHz mono, saved ${pr.audioOptimization.compressionRatio}%) — under 100 MB upload limit`
+            `Media optimized: ${origMb} MB → ${optMb} MB (${pr.audioOptimization.format.toUpperCase()} 16kHz mono, saved ${pr.audioOptimization.compressionRatio}%)`
           );
         }
         if (v.speechRatio > 0) {
@@ -188,8 +188,13 @@ export default function Processing({
         } else {
           logEv("warn", "VAD disabled by user");
         }
-      } catch (e) {
-        logEv("err", `Preparation failed: ${e instanceof Error ? e.message : String(e)}`);
+      } catch (e: any) {
+        const msg = e instanceof ApiError ? e.message : e instanceof Error ? e.message : String(e);
+        logEv("err", `Preparation failed: ${msg}`);
+        onToast("err", `Preparation failed: ${msg}`);
+        await patchProject(initial.id, { status: "failed", stage: "prepare" });
+        await refresh();
+        return; // Stop immediately on preparation failure
       }
       d = await refresh();
       logEv(
@@ -202,7 +207,7 @@ export default function Processing({
         while (pauseRef.current && !stopRef.current) await sleep(400);
         if (stopRef.current) break;
         d = await refresh();
-        const ready = d.chunks.filter((c) => c.status === "WAITING" || (c.status === "FAILED" && c.attempts < 3));
+        const ready = d.chunks.filter((c) => c.status === "WAITING" || (c.status === "FAILED" && c.attempts < 2));
         if (ready.length === 0) break;
         const n = Math.min(Math.max(1, d.project.workers), ready.length);
         if (ready.length > n) logEv("wait", `${ready.length - n} chunks waiting for a worker slot…`);
@@ -210,6 +215,35 @@ export default function Processing({
       }
 
       if (stopRef.current) return;
+
+      d = await refresh();
+      const failedChunks = d.chunks.filter((c) => c.status === "FAILED");
+      if (failedChunks.length > 0 && d.subtitles.length === 0) {
+        logEv("err", `Transcription failed: ${failedChunks.length} chunk(s) encountered unrecoverable errors.`);
+        onToast("err", "Transcription failed. Please check the logs and ensure backend is running.");
+        const upd = await patchProject(initial.id, {
+          status: "failed",
+          stage: "asr",
+          qualityScore: 0,
+        });
+        setDetail({ ...d, project: upd });
+        onProject(upd);
+        return;
+      }
+
+      if (d.subtitles.length === 0) {
+        logEv("warn", "No speech detected in audio file (0 subtitles generated).");
+        onToast("warn", "No speech was recognized in this file.");
+        const upd = await patchProject(initial.id, {
+          status: "completed",
+          stage: "done",
+          progress: 100,
+          qualityScore: 0,
+        });
+        setDetail({ ...d, project: upd });
+        onProject(upd);
+        return;
+      }
 
       logEv("run", "Merging chunks — deduping overlaps, aligning timestamps…");
       await sleep(500);
@@ -304,6 +338,17 @@ export default function Processing({
     await run();
   };
 
+  const isFailed = p.status === "failed";
+  const doRetry = async () => {
+    stopRef.current = false;
+    runRef.current = false;
+    setCancelled(false);
+    logEv("info", "Retrying processing pipeline…");
+    await patchProject(initial.id, { status: "processing", progress: 0 });
+    await refresh();
+    void run();
+  };
+
   const latest = live[0];
   const stages: Array<{ id: string; label: string; done: boolean; active: boolean }> = [
     { id: "analyze", label: "Analyze", done: !!detail, active: !detail },
@@ -325,8 +370,12 @@ export default function Processing({
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
               <h1 className="font-display truncate text-[1.05rem] font-bold">{p.name}</h1>
-              <Badge tone={cancelled ? "neutral" : finished ? "ok" : "accent"} icon={finished ? "check" : "clock"} pulse={!finished && !cancelled}>
-                {cancelled ? "Cancelled" : finished ? "Complete" : "Processing"}
+              <Badge
+                tone={isFailed ? "err" : cancelled ? "neutral" : finished ? "ok" : "accent"}
+                icon={isFailed ? "x" : finished ? "check" : "clock"}
+                pulse={!finished && !cancelled && !isFailed}
+              >
+                {isFailed ? "Failed" : cancelled ? "Cancelled" : finished ? "Complete" : "Processing"}
               </Badge>
               <Badge tone="teal" icon="shield">Local processing</Badge>
             </div>
@@ -335,11 +384,16 @@ export default function Processing({
             </div>
           </div>
           <div className="flex items-center gap-2">
-            {!finished && !cancelled && !paused && <Btn icon="pause" onClick={() => void doPause()}>Pause</Btn>}
+            {isFailed && (
+              <Btn variant="primary" icon="refresh" onClick={() => void doRetry()}>
+                Retry Processing
+              </Btn>
+            )}
+            {!finished && !cancelled && !isFailed && !paused && <Btn icon="pause" onClick={() => void doPause()}>Pause</Btn>}
             {paused && <Btn variant="primary" icon="play" onClick={() => void doResume()}>Resume</Btn>}
-            {!finished && !cancelled && <Btn variant="danger" icon="x" onClick={() => setConfirmCancel(true)}>Cancel</Btn>}
+            {!finished && !cancelled && !isFailed && <Btn variant="danger" icon="x" onClick={() => setConfirmCancel(true)}>Cancel</Btn>}
             {cancelled && completed > 0 && <Btn variant="primary" icon="refresh" onClick={() => void resumeFromCancel()}>Resume from checkpoint</Btn>}
-            <Btn icon="chevron-right" onClick={onExit}>{cancelled ? "Back to queue" : "Leave (stays in queue)"}</Btn>
+            <Btn icon="chevron-right" onClick={onExit}>{cancelled || isFailed ? "Back to queue" : "Leave (stays in queue)"}</Btn>
           </div>
         </div>
 
