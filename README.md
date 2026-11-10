@@ -349,19 +349,92 @@ These integrations require their corresponding backend implementations, dependen
 
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/margacis2/ai-subtitle-studio/blob/main/colab_backend.ipynb)
 
-For users wanting maximum transcription quality using large models (`large-v3-turbo`) without utilizing local GPU memory or laptop battery, AI Subtitle Studio includes an authenticated, high-speed Google Colab GPU pipeline:
+```
++-----------------------------------+         +----------------------------------+
+|   AI Subtitle Studio (Local PC)   |         |    Google Colab (Cloud GPU T4)   |
+|   http://localhost:3000           |         |                                  |
+|                                   |  HTTPS  |  Faster-Whisper (Large-v3-Turbo) |
+| 1. Uploads video                  | ======> |  OPUS-MT (Neural Translation)    |
+| 2. Auto-optimizes audio (<100MB)  | (Tunnel)|  Tesla T4 16 GB VRAM             |
+| 3. Displays Real-time Subtitles   | <====== |  Accurate Timestamps             |
++-----------------------------------+         +----------------------------------+
+```
 
-1. Click the **Open In Colab** badge above or open [`colab_backend.ipynb`](colab_backend.ipynb) in **Google Colab**.
-2. Select **Runtime → Change runtime type → T4 GPU** (free tier).
-3. Run the cells in order:
-   - **Cell 1**: Hardware diagnostics (verifies GPU & FFmpeg).
-   - **Cell 2**: Pinned dependencies & Cloudflare tunnel setup.
-   - **Cell 3**: Real Faster-Whisper & OPUS-MT neural engine configuration.
-   - **Cell 4**: Launch server & direct HTTPS Cloudflare quick tunnel (no IP password prompt or challenge screen).
-4. Copy the **Engine URL** (e.g. `https://xxxx.trycloudflare.com`) and **API Token** displayed in Colab.
-5. In **AI Subtitle Studio**, open **Settings** (gear icon) → **Addon: Google Colab Remote GPU**.
-6. Paste the tunnel URL and API token, then click **Save & Verify Connection**. The studio seamlessly offloads ASR and translation jobs to the Colab GPU.
-7. Click **Reset to Local GPU** anytime to switch back to local GPU/CPU processing.
+For users wanting maximum transcription quality using large models (`large-v3-turbo`) without utilizing local GPU memory or laptop battery, AI Subtitle Studio includes an authenticated, high-speed Google Colab GPU pipeline.
+
+---
+
+### 📖 Step-by-Step Real-Time Walkthrough
+
+#### Step 1: Open the Colab Notebook & Enable Free GPU
+1. Click the **[Open In Colab](https://colab.research.google.com/github/margacis2/ai-subtitle-studio/blob/main/colab_backend.ipynb)** badge or open `colab_backend.ipynb`.
+2. In Google Colab's menu bar, click:
+   - **Runtime** → **Change runtime type**
+   - Under **Hardware accelerator**, select **T4 GPU** (free tier)
+   - Click **Save**
+
+#### Step 2: Run the Notebook Cells
+1. **Cell 1 (Diagnostics)**: Click ▶ to verify hardware. Shows `GPU Accelerator: [ACTIVE] Tesla T4 (15.00 GB VRAM)` and FFmpeg status.
+2. **Cell 2 (Dependencies)**: Click ▶ to install Faster-Whisper, Hugging Face Transformers, and Cloudflare tunnel (~45s).
+3. **Cell 3 (Engine Config)**: Click ▶ to configure model settings (default: `large-v3-turbo`, 100 MB upload limit).
+4. **Cell 4 (Launch Tunnel)**: Click ▶ to start the GPU server. It displays your connection card:
+   ```text
+   =================================================================
+     🚀 AI SUBTITLE STUDIO - GOOGLE COLAB GPU BACKEND ONLINE!
+   =================================================================
+     🔗 Engine URL    : https://xxxx-xxxx.trycloudflare.com
+     🔑 API Token     : colab-sec-9a8f
+     ⚡ Model Target  : Faster-Whisper large-v3-turbo (CUDA)
+   =================================================================
+   ```
+
+#### Step 3: Connect in AI Subtitle Studio
+1. In your browser at `http://localhost:3000`, click **Settings (⚙️)** (or click **Guide & Tutorial**).
+2. Under **Addon: Google Colab Remote GPU**:
+   - **Tunnel / Engine URL**: Paste `https://xxxx-xxxx.trycloudflare.com`
+   - **API Secret Token**: Paste `colab-sec-9a8f`
+3. Click **Save & Verify Connection**. The status indicator turns green:
+   ```text
+   ● Online (large-v3-turbo) · 165ms
+   ```
+
+#### Step 4: Run a Real-Time Video Transcription & Translation
+1. On the home page, drop any video or the included sample file: `sample_test_video.mp4` (~0.95 MB).
+2. Choose **Source Language**: `Auto Detect` (or `English`).
+3. Choose **Target Language**: `Tamil` (தமிழ்), `Japanese` (日本語), `Spanish` (Español), or `Original`.
+4. Click **Start Processing**.
+5. Watch the real-time processing log:
+   - Audio is extracted and optimized (16 kHz mono WAV / MP3 under 100 MB).
+   - Voice activity detection (VAD) identifies speech boundaries.
+   - Sent to Colab GPU: Faster-Whisper transcribes every line with millisecond timestamps.
+   - OPUS-MT translates sentences on the GPU.
+   - Live subtitles appear synchronized in the real-time player!
+6. Click **Export** anytime to download `.srt`, `.vtt`, `.ass`, or burn subtitles into your video.
+
+#### Step 5: Switch Back to Local Mode
+Whenever you want to run offline:
+1. Open **Settings (⚙️)**.
+2. Click **Reset to Local GPU**. The studio immediately returns to your local `http://127.0.0.1:8001` backend without restarting.
+
+---
+
+### 🛡️ Automatic Pre-Upload Media Optimization (< 100 MB Target)
+Before sending media over the cloud tunnel, the server extracts and optimizes the audio track:
+- Original media remains completely intact and untouched.
+- Optimized audio is converted to **16 kHz mono WAV** (~32 KB/sec).
+- If duration exceeds 45 minutes and WAV exceeds 95 MB, it automatically compresses to **64 kbps mono MP3**, staying well below the 100 MB upload limit while maintaining peak ASR speech clarity.
+- Progress and byte savings (e.g., `142 MB → 18 MB, saved 87%`) are displayed live in the processing log.
+
+### 🧪 Automated Acceptance Testing
+You can run the end-to-end pipeline verification test anytime using the included test assets:
+```bash
+# Generate sample test video with speech synthesis
+powershell -ExecutionPolicy Bypass -File scripts\generate_sample_video.ps1
+
+# Run full pipeline verification test
+python scripts\verify_pipeline.py
+```
+This automatically verifies video conversion, < 100 MB size validation, Faster-Whisper execution, timestamp monotonicity, and OPUS-MT translation.
 
 ### 🛡️ Automatic Pre-Upload Media Optimization (< 100 MB Target)
 Before sending media over the cloud tunnel, the server extracts and optimizes the audio track:

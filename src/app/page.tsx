@@ -9,6 +9,7 @@ import Home from "@/components/Home";
 import Processing from "@/components/Processing";
 import Editor from "@/components/Editor";
 import SettingsModal, { Prefs } from "@/components/SettingsModal";
+import TutorialModal from "@/components/TutorialModal";
 import TranslationView from "@/components/TranslationView";
 import { Btn } from "@/components/ui";
 import { Icon } from "@/components/icons";
@@ -64,6 +65,7 @@ export default function Page() {
   const [hw, setHw] = useState<HardwareInfo | null>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [tutorialOpen, setTutorialOpen] = useState(false);
   const [benchmarks, setBenchmarksState] = useState<BenchmarkRow[]>([]);
   const [customPresets, setCustomPresetsState] = useState<Preset[]>([]);
 
@@ -210,6 +212,14 @@ export default function Page() {
           <div className="ml-auto flex items-center gap-2">
             <Btn
               size="sm"
+              icon="film"
+              variant={tutorialOpen ? "primary" : undefined}
+              onClick={() => setTutorialOpen(true)}
+            >
+              Guide &amp; Tutorial
+            </Btn>
+            <Btn
+              size="sm"
               icon="spark"
               variant={view === "translate" ? "primary" : undefined}
               onClick={() => setView((v) => (v === "translate" ? "home" : "translate"))}
@@ -292,6 +302,12 @@ export default function Page() {
         settings={settings}
         setSettings={setSettings}
         onToast={toast}
+      />
+
+      <TutorialModal
+        open={tutorialOpen}
+        onClose={() => setTutorialOpen(false)}
+        onOpenSettings={() => setSettingsOpen(true)}
       />
 
       {/* toasts */}

@@ -1,4 +1,4 @@
-﻿# Generate a 60-90s sample test video with spoken English for AI Subtitle Studio verification
+# Generate a 60-90s sample test video with spoken English for AI Subtitle Studio verification
 $ErrorActionPreference = "Stop"
 
 $transcript = @"
