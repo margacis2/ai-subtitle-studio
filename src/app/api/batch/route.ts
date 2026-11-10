@@ -13,8 +13,56 @@ export async function GET() {
 
 export async function POST(req: Request) {
   try {
+    const contentType = req.headers.get("content-type") || "";
+
+    if (contentType.includes("multipart/form-data")) {
+      const fd = await req.formData();
+      const files = fd.getAll("files");
+      const defaultModel = (fd.get("defaultModel") as string) || "small";
+      const sourceLang = (fd.get("sourceLang") as string) || "auto";
+      const targetLang = (fd.get("targetLang") as string) || "original";
+
+      if (!files || files.length === 0) {
+        return NextResponse.json({ error: "No files uploaded" }, { status: 400 });
+      }
+
+      const created = [];
+      const fs = require("node:fs/promises");
+      const path = require("node:path");
+
+      for (const item of files) {
+        if (!(item instanceof File)) continue;
+        const id = newId();
+        const batchDir = path.join(process.cwd(), "data", "work", `batch_${id}`);
+        await fs.mkdir(batchDir, { recursive: true });
+
+        const safeName = item.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+        const dest = path.join(batchDir, safeName);
+        const buf = Buffer.from(await item.arrayBuffer());
+        await fs.writeFile(dest, buf);
+
+        const job = {
+          id,
+          name: item.name.replace(/\.[^.]+$/, ""),
+          filePath: dest,
+          fileSize: item.size,
+          durationSec: 0,
+          sourceLang,
+          targetLang,
+          asrModel: defaultModel,
+          status: "pending",
+          progress: 0,
+        };
+        await db.insert(batchJobs).values(job);
+        created.push(job);
+      }
+
+      log(`batch.queued files=${created.length}`);
+      return NextResponse.json({ ok: true, jobs: created }, { status: 201 });
+    }
+
     const body = await req.json();
-    const { items, defaultModel = "small", sourceLang = "auto", targetLang = "en" } = body;
+    const { items, defaultModel = "small", sourceLang = "auto", targetLang = "original" } = body;
 
     if (!Array.isArray(items) || items.length === 0) {
       return NextResponse.json({ error: "items array is required" }, { status: 400 });

@@ -97,11 +97,12 @@ export default function Page() {
   const [customPresets, setCustomPresetsState] = useState<Preset[]>([]);
 
   /* Navigation History handlers */
-  const navigateTo = useCallback((newView: View) => {
-    setViewInternal(newView);
+  const navigateTo = useCallback((newView: View | string) => {
+    const resolvedView: View = newView === "transcribe" ? "home" : (newView as View);
+    setViewInternal(resolvedView);
     setNavHistory((prev) => {
       const next = prev.slice(0, navIndex + 1);
-      next.push(newView);
+      next.push(resolvedView);
       return next;
     });
     setNavIndex((prev) => prev + 1);
@@ -646,7 +647,7 @@ export default function Page() {
           )}
 
           {view === "batch" && (
-            <BatchQueueView onToast={toast} />
+            <BatchQueueView onToast={toast} onNavigate={(v) => navigateTo(v as View)} />
           )}
 
           {view === "translate" && (

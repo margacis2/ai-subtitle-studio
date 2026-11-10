@@ -43,6 +43,10 @@ export async function POST(req: Request) {
       const res = await fetch(`${engineUrl}/models/${modelId}`, { method: "DELETE" });
       const data = await res.json();
       return NextResponse.json(data);
+    } else if (action === "test") {
+      const res = await fetch(`${engineUrl}/models/${modelId}/test`, { method: "POST" });
+      const data = await res.json();
+      return NextResponse.json(data);
     } else {
       const res = await fetch(`${engineUrl}/models/${modelId}/download`, { method: "POST" });
       const data = await res.json();

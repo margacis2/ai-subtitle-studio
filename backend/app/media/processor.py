@@ -41,12 +41,25 @@ def probe_media_info(file_path: str) -> Dict[str, Any]:
     has_audio = any(s.get("codec_type") == "audio" for s in streams)
     has_video = any(s.get("codec_type") == "video" for s in streams)
 
+    audio_codec = None
+    sample_rate = 16000
+    channels = 1
+    for s in streams:
+        if s.get("codec_type") == "audio":
+            audio_codec = s.get("codec_name")
+            sample_rate = int(s.get("sample_rate", 16000))
+            channels = int(s.get("channels", 1))
+            break
+
     return {
         "durationSec": duration,
         "sizeBytes": size,
         "hasAudio": has_audio,
         "hasVideo": has_video,
-        "format": fmt.get("format_name", "unknown")
+        "format": fmt.get("format_name", "unknown"),
+        "codec": audio_codec,
+        "sampleRate": sample_rate,
+        "channels": channels
     }
 
 def extract_optimized_audio(
@@ -56,16 +69,19 @@ def extract_optimized_audio(
 ) -> Dict[str, Any]:
     """
     Extract 16 kHz mono WAV. If larger than max_bytes, automatically encode to 64 kbps MP3.
-    Preserves speech fidelity while keeping size compact.
+    Preserves speech fidelity while reporting genuine size differences.
     """
     ffmpeg = get_ffmpeg_path()
     orig_size = os.path.getsize(media_path)
     wav_path = output_base_path + ".wav"
 
-    # Step 1: Extract 16 kHz mono PCM WAV
+    # Step 1: Extract 16 kHz mono PCM WAV, stripping corrupted container metadata (-map_metadata -1)
     cmd_wav = [
         ffmpeg, "-y", "-nostdin",
+        "-fflags", "+discardcorrupt+genpts",
+        "-err_detect", "ignore_err",
         "-i", media_path,
+        "-map_metadata", "-1",
         "-vn",
         "-ac", "1",
         "-ar", "16000",
@@ -79,19 +95,28 @@ def extract_optimized_audio(
 
     wav_size = os.path.getsize(wav_path)
     if wav_size <= max_bytes:
+        change_pct = round(abs(orig_size - wav_size) / max(1, orig_size) * 100, 1)
+        change_type = "reduced" if wav_size < orig_size else "expanded" if wav_size > orig_size else "unchanged"
         return {
             "path": wav_path,
             "format": "wav",
             "originalSize": orig_size,
             "optimizedSize": wav_size,
-            "compressionRatio": round(((orig_size - wav_size) / max_size_base(orig_size)) * 100, 1)
+            "changePercent": change_pct,
+            "changeType": change_type,
+            "sampleRate": 16000,
+            "channels": 1,
+            "codec": "pcm_s16le"
         }
 
     # Step 2: Fall back to 64 kbps mono MP3 for long-form audio (> 45 min)
     mp3_path = output_base_path + "_opt.mp3"
     cmd_mp3 = [
         ffmpeg, "-y", "-nostdin",
+        "-fflags", "+discardcorrupt+genpts",
+        "-err_detect", "ignore_err",
         "-i", wav_path,
+        "-map_metadata", "-1",
         "-vn",
         "-ac", "1",
         "-ar", "16000",
@@ -102,22 +127,30 @@ def extract_optimized_audio(
     res2 = subprocess.run(cmd_mp3, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     if res2.returncode == 0 and os.path.exists(mp3_path):
         mp3_size = os.path.getsize(mp3_path)
+        change_pct = round(abs(orig_size - mp3_size) / max(1, orig_size) * 100, 1)
+        change_type = "reduced" if mp3_size < orig_size else "expanded" if mp3_size > orig_size else "unchanged"
         return {
             "path": mp3_path,
             "format": "mp3",
             "originalSize": orig_size,
             "optimizedSize": mp3_size,
-            "compressionRatio": round(((orig_size - mp3_size) / max_size_base(orig_size)) * 100, 1)
+            "changePercent": change_pct,
+            "changeType": change_type,
+            "sampleRate": 16000,
+            "channels": 1,
+            "codec": "mp3"
         }
 
+    change_pct = round(abs(orig_size - wav_size) / max(1, orig_size) * 100, 1)
+    change_type = "reduced" if wav_size < orig_size else "expanded" if wav_size > orig_size else "unchanged"
     return {
         "path": wav_path,
         "format": "wav",
         "originalSize": orig_size,
         "optimizedSize": wav_size,
-        "compressionRatio": 0
+        "changePercent": change_pct,
+        "changeType": change_type,
+        "sampleRate": 16000,
+        "channels": 1,
+        "codec": "pcm_s16le"
     }
-
-def max_size_base(val: int) -> int:
-    return val if val > 0 else 1
-

@@ -77,7 +77,7 @@ export default function DashboardView({
             <Btn
               variant="primary"
               icon="plus"
-              onClick={() => onNavigate("transcribe")}
+              onClick={() => onNavigate("home")}
             >
               New Transcription
             </Btn>
@@ -132,7 +132,7 @@ export default function DashboardView({
       {/* Quick Action Hub */}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <button
-          onClick={() => onNavigate("transcribe")}
+          onClick={() => onNavigate("home")}
           className="panel group text-left p-4 hover:border-cyan-500/50 transition-all flex items-start gap-3.5"
         >
           <div className="h-10 w-10 shrink-0 rounded-lg bg-cyan-500/10 text-cyan-400 flex items-center justify-center group-hover:scale-105 transition-transform">
@@ -216,7 +216,7 @@ export default function DashboardView({
               Start by transcribing a video or audio file. Your project history will appear here.
             </p>
             <div className="pt-2">
-              <Btn size="sm" variant="primary" icon="plus" onClick={() => onNavigate("transcribe")}>
+              <Btn size="sm" variant="primary" icon="plus" onClick={() => onNavigate("home")}>
                 Start First Project
               </Btn>
             </div>

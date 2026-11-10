@@ -17,6 +17,10 @@ export interface ModelItem {
   downloading?: boolean;
   progress?: number;
   status?: string;
+  bytes_downloaded?: number;
+  total_bytes?: number;
+  speed_mbps?: number;
+  installed_size_mb?: number;
 }
 
 export default function ModelManagerView({
@@ -26,8 +30,8 @@ export default function ModelManagerView({
 }) {
   const [models, setModels] = useState<ModelItem[]>([]);
   const [cacheDir, setCacheDir] = useState<string>("");
-  const [loading, setLoading] = useState(false);
   const [actionInProgress, setActionInProgress] = useState<string | null>(null);
+  const [testingModel, setTestingModel] = useState<string | null>(null);
 
   const fetchModels = async () => {
     try {
@@ -44,9 +48,15 @@ export default function ModelManagerView({
 
   useEffect(() => {
     fetchModels();
-    const interval = setInterval(fetchModels, 4000);
-    return () => clearInterval(interval);
   }, []);
+
+  // Responsive polling: 1000ms if any model is downloading, 4000ms if idle
+  useEffect(() => {
+    const hasActiveDl = models.some((m) => m.downloading || m.status === "downloading" || m.status === "starting" || m.status === "verifying");
+    const intervalTime = hasActiveDl ? 1000 : 4000;
+    const interval = setInterval(fetchModels, intervalTime);
+    return () => clearInterval(interval);
+  }, [models]);
 
   const handleDownload = async (modelId: string) => {
     setActionInProgress(modelId);
@@ -67,6 +77,29 @@ export default function ModelManagerView({
       onToast("err", e.message || "Network error");
     } finally {
       setActionInProgress(null);
+    }
+  };
+
+  const handleTestLoad = async (modelId: string) => {
+    setTestingModel(modelId);
+    onToast("info", `Testing ${modelId} hardware loading...`);
+    try {
+      const res = await fetch("/api/models", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ modelId, action: "test" }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        onToast("ok", `✓ ${modelId} loaded on ${data.device} (${data.compute_type}) in ${data.load_time_sec}s`);
+      } else {
+        const err = await res.json();
+        onToast("err", err.error?.message || err.detail?.message || "Failed loading model");
+      }
+    } catch (e: any) {
+      onToast("err", e.message || "Hardware test failed");
+    } finally {
+      setTestingModel(null);
     }
   };
 
@@ -138,11 +171,15 @@ export default function ModelManagerView({
                       isInstalled
                         ? "border-emerald-500/40 text-emerald-400 bg-emerald-500/10"
                         : isDownloading
-                        ? "border-amber-500/40 text-amber-300 bg-amber-500/10 pulse"
+                        ? "border-amber-500/40 text-amber-300 bg-amber-500/10 animate-pulse"
                         : "border-neutral-700 text-neutral-400"
                     }`}
                   >
-                    {isInstalled ? "✓ Installed" : isDownloading ? `Downloading ${m.progress || 0}%` : "Available"}
+                    {isInstalled
+                      ? "✓ Installed"
+                      : isDownloading
+                      ? `Downloading ${m.progress || 0}%`
+                      : "Available"}
                   </span>
                 </div>
                 <p className="text-[0.75rem] text-neutral-400 leading-snug">{m.description}</p>
@@ -152,7 +189,9 @@ export default function ModelManagerView({
                 <div className="grid grid-cols-3 gap-1 text-center text-[0.7rem]">
                   <div className="rounded bg-neutral-900/60 p-1.5">
                     <span className="block text-neutral-400 text-[0.62rem]">Size</span>
-                    <span className="font-mono font-semibold text-neutral-200">{m.size_mb} MB</span>
+                    <span className="font-mono font-semibold text-neutral-200">
+                      {isInstalled && m.installed_size_mb ? `${m.installed_size_mb} MB` : `${m.size_mb} MB`}
+                    </span>
                   </div>
                   <div className="rounded bg-neutral-900/60 p-1.5">
                     <span className="block text-neutral-400 text-[0.62rem]">VRAM</span>
@@ -165,11 +204,20 @@ export default function ModelManagerView({
                 </div>
 
                 {isDownloading && (
-                  <div className="h-1.5 w-full bg-neutral-800 rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-teal-400 transition-all duration-300"
-                      style={{ width: `${m.progress || 10}%` }}
-                    />
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between text-[0.68rem] text-neutral-400">
+                      <span>{m.status || "Downloading"}...</span>
+                      <span className="font-mono text-cyan-300 font-bold">
+                        {m.progress || 0}%
+                        {m.speed_mbps ? ` · ${m.speed_mbps} MB/s` : ""}
+                      </span>
+                    </div>
+                    <div className="h-1.5 w-full bg-neutral-800 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-gradient-to-r from-teal-400 to-cyan-400 transition-all duration-300"
+                        style={{ width: `${Math.max(3, m.progress || 0)}%` }}
+                      />
+                    </div>
                   </div>
                 )}
 
@@ -182,19 +230,34 @@ export default function ModelManagerView({
                       disabled={isBusy || isDownloading}
                       onClick={() => handleDownload(m.id)}
                     >
-                      {isDownloading ? "Downloading..." : isBusy ? "Starting..." : "Download Model"}
+                      {isDownloading ? `Downloading (${m.progress || 0}%)` : isBusy ? "Starting..." : "Download Model"}
                     </Btn>
                   )}
                   {isInstalled && (
-                    <Btn
-                      size="sm"
-                      variant="danger"
-                      className="w-full"
-                      disabled={isBusy}
-                      onClick={() => handleDelete(m.id)}
-                    >
-                      Delete Model
-                    </Btn>
+                    <div className="flex w-full items-center gap-1.5">
+                      <Btn
+                        size="sm"
+                        variant="ghost"
+                        className="flex-1"
+                        icon="cpu"
+                        disabled={isBusy || testingModel === m.id}
+                        onClick={() => handleTestLoad(m.id)}
+                        title="Test loading weights into GPU/CPU memory"
+                      >
+                        {testingModel === m.id ? "Testing..." : "Test Load"}
+                      </Btn>
+                      <Btn
+                        size="sm"
+                        variant="danger"
+                        className="shrink-0"
+                        icon="trash"
+                        disabled={isBusy || isDownloading}
+                        onClick={() => handleDelete(m.id)}
+                        title="Delete model from disk"
+                      >
+                        Delete
+                      </Btn>
+                    </div>
                   )}
                 </div>
               </div>

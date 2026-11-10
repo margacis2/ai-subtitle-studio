@@ -21,8 +21,10 @@ export interface BatchItem {
 
 export default function BatchQueueView({
   onToast,
+  onNavigate,
 }: {
   onToast: (tone: "ok" | "err" | "warn" | "info", text: string) => void;
+  onNavigate?: (view: string) => void;
 }) {
   const [jobs, setJobs] = useState<BatchItem[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -63,13 +65,29 @@ export default function BatchQueueView({
       input.multiple = true;
       input.accept = "video/*,audio/*";
       input.onchange = async () => {
-        if (!input.files) return;
-        const items = Array.from(input.files).map((f) => ({
-          name: f.name,
-          filePath: f.name,
-          fileSize: f.size,
-        }));
-        await addBatchJobs(items);
+        if (!input.files || input.files.length === 0) return;
+        const fd = new FormData();
+        Array.from(input.files).forEach((f) => fd.append("files", f));
+        fd.append("defaultModel", "small");
+        fd.append("sourceLang", "auto");
+        fd.append("targetLang", "original");
+
+        onToast("info", `Uploading ${input.files.length} file(s) to batch queue...`);
+        try {
+          const res = await fetch("/api/batch", {
+            method: "POST",
+            body: fd,
+          });
+          if (res.ok) {
+            onToast("ok", `Added ${input.files.length} file(s) to processing queue.`);
+            await fetchJobs();
+          } else {
+            const err = await res.json();
+            onToast("err", err.error || "Failed to add batch files");
+          }
+        } catch (e: any) {
+          onToast("err", e.message || "Upload failed");
+        }
       };
       input.click();
     }
@@ -230,12 +248,22 @@ export default function BatchQueueView({
                     <span>Model: <span className="text-neutral-200 capitalize">{job.asrModel}</span></span>
                     <span>•</span>
                     <span>Lang: <span className="text-neutral-200">{job.sourceLang.toUpperCase()} → {job.targetLang.toUpperCase()}</span></span>
+                    {job.outputSrtPath && (
+                      <span className="text-emerald-400 font-mono text-[0.65rem] truncate max-w-xs">
+                        ✓ {job.outputSrtPath.split(/[/\\]/).pop()}
+                      </span>
+                    )}
                     {job.errorMsg && <span className="text-rose-400 font-semibold">• Error: {job.errorMsg}</span>}
                   </div>
                 </div>
               </div>
 
               <div className="flex items-center gap-2">
+                {job.status === "completed" && onNavigate && (
+                  <Btn size="sm" variant="ghost" icon="scissors" onClick={() => onNavigate("library")}>
+                    Editor
+                  </Btn>
+                )}
                 {/* Reorder buttons */}
                 <div className="flex items-center gap-0.5">
                   <button

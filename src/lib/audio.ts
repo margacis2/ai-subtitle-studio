@@ -129,6 +129,7 @@ export async function extractWav(mediaPath: string, wavPath: string, timeoutMs =
     "-fflags", "+discardcorrupt+genpts",
     "-err_detect", "ignore_err",
     "-i", mediaPath,
+    "-map_metadata", "-1",
     "-vn",
     "-ac", "1",
     "-ar", "16000",
@@ -169,8 +170,13 @@ export interface AudioOptimizationResult {
   path: string;
   originalSize: number;
   optimizedSize: number;
-  compressionRatio: number;
+  changePercent: number;
+  changeType: "reduced" | "expanded" | "unchanged";
   format: "wav" | "mp3";
+  sampleRate: number;
+  channels: number;
+  codec: string;
+  compressionRatio?: number;
 }
 
 /**
@@ -192,24 +198,35 @@ export async function extractOptimizedAudio(
   await extractWav(mediaPath, wavPath, timeoutMs);
 
   const wavStat = fs.statSync(wavPath);
+  const sizeDelta = Math.abs(origStat.size - wavStat.size);
+  const changePercent = Math.round((sizeDelta / Math.max(1, origStat.size)) * 100);
+  const changeType =
+    wavStat.size < origStat.size ? "reduced" : wavStat.size > origStat.size ? "expanded" : "unchanged";
+
   if (wavStat.size <= targetMaxBytes) {
     return {
       path: wavPath,
       originalSize: origStat.size,
       optimizedSize: wavStat.size,
-      compressionRatio: Math.round(((origStat.size - wavStat.size) / Math.max(1, origStat.size)) * 100),
+      changePercent,
+      changeType,
       format: "wav",
+      sampleRate: 16000,
+      channels: 1,
+      codec: "pcm_s16le",
+      compressionRatio: changeType === "reduced" ? changePercent : -changePercent,
     };
   }
 
   // Step 2: If WAV > 95MB, encode to compact 16kHz mono MP3
   const mp3Path = outputBasePath.replace(/\.[^.]+$/, "") + "_opt.mp3";
-  const r = await runCommand("ffmpeg", [
+  await runCommand("ffmpeg", [
     "-y",
     "-nostdin",
     "-fflags", "+discardcorrupt+genpts",
     "-err_detect", "ignore_err",
     "-i", wavPath,
+    "-map_metadata", "-1",
     "-vn",
     "-ac", "1",
     "-ar", "16000",
@@ -220,12 +237,22 @@ export async function extractOptimizedAudio(
 
   if (fs.existsSync(mp3Path) && fs.statSync(mp3Path).size > 1024) {
     const mp3Stat = fs.statSync(mp3Path);
+    const mp3Delta = Math.abs(origStat.size - mp3Stat.size);
+    const mp3Percent = Math.round((mp3Delta / Math.max(1, origStat.size)) * 100);
+    const mp3ChangeType =
+      mp3Stat.size < origStat.size ? "reduced" : mp3Stat.size > origStat.size ? "expanded" : "unchanged";
+
     return {
       path: mp3Path,
       originalSize: origStat.size,
       optimizedSize: mp3Stat.size,
-      compressionRatio: Math.round(((origStat.size - mp3Stat.size) / Math.max(1, origStat.size)) * 100),
+      changePercent: mp3Percent,
+      changeType: mp3ChangeType,
       format: "mp3",
+      sampleRate: 16000,
+      channels: 1,
+      codec: "mp3",
+      compressionRatio: mp3ChangeType === "reduced" ? mp3Percent : -mp3Percent,
     };
   }
 
@@ -233,8 +260,13 @@ export async function extractOptimizedAudio(
     path: wavPath,
     originalSize: origStat.size,
     optimizedSize: wavStat.size,
-    compressionRatio: Math.round(((origStat.size - wavStat.size) / Math.max(1, origStat.size)) * 100),
+    changePercent,
+    changeType,
     format: "wav",
+    sampleRate: 16000,
+    channels: 1,
+    codec: "pcm_s16le",
+    compressionRatio: changeType === "reduced" ? changePercent : -changePercent,
   };
 }
 

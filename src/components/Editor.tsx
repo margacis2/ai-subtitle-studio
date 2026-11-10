@@ -118,7 +118,7 @@ export default function Editor({
     withTimes: false,
     style: DEFAULT_ASS_STYLE,
   });
-  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(true);
   const [seekTo, setSeekTo] = useState<number | null>(null);
   const [playerTime, setPlayerTime] = useState(0);
   const [saveState, setSaveState] = useState<"saved" | "dirty" | "saving">("saved");
@@ -495,8 +495,8 @@ export default function Editor({
           </Badge>
           <div className="ml-auto flex flex-wrap gap-1.5">
             <Btn size="sm" icon="chevron-right" onClick={onBack}>Queue</Btn>
-            <Btn size="sm" icon="video" onClick={() => setPreviewOpen((v) => !v)} disabled={!isVideo}>
-              Preview
+            <Btn size="sm" icon="video" variant={previewOpen ? "primary" : undefined} onClick={() => setPreviewOpen((v) => !v)}>
+              {previewOpen ? "Hide Player" : "Show Player"}
             </Btn>
             <Btn size="sm" icon="gear" onClick={doBurn} disabled={burning}>
               {burning ? "Burning…" : "Burn into video"}
@@ -538,7 +538,7 @@ export default function Editor({
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_330px]">
         {/* main column */}
         <div className="space-y-3">
-          {previewOpen && isVideo && (
+          {previewOpen && (
             <PreviewPlayer
               src={mediaUrl(p.id)}
               lines={lines}
@@ -546,6 +546,7 @@ export default function Editor({
               speakerOn={exp.speakerOn}
               seekTo={seekTo}
               onTime={setPlayerTime}
+              isAudio={!isVideo}
             />
           )}
 
@@ -628,6 +629,7 @@ export default function Editor({
                           key={l.id}
                           id={`sub-${i}`}
                           onClick={(e) => {
+                            setSeekTo(l.startMs);
                             if (e.shiftKey && anchor != null) {
                               const [a, b] = [Math.min(anchor, i), Math.max(anchor, i)];
                               const ns = new Set<number>();
@@ -689,16 +691,14 @@ export default function Editor({
                             {isHallu ? (
                               <Btn size="sm" variant="danger" icon="x" title="Remove hallucinated segment" onClick={() => mutate((ls) => ls.filter((_, j) => j !== i))}>✕</Btn>
                             ) : (
-                              isVideo && (
-                                <button
-                                  className="rounded p-1 transition-colors hover:bg-[var(--bg4)]"
-                                  style={{ color: "var(--muted)" }}
-                                  title="Preview at this time"
-                                  onClick={(e) => { e.stopPropagation(); setPreviewOpen(true); setSeekTo(l.startMs + 10); }}
-                                >
-                                  <Icon name="play" size={13} />
-                                </button>
-                              )
+                              <button
+                                className="rounded p-1 transition-colors hover:bg-[var(--bg4)]"
+                                style={{ color: "var(--accent)" }}
+                                title="Play scene from this timestamp"
+                                onClick={(e) => { e.stopPropagation(); setPreviewOpen(true); setSeekTo(l.startMs + 10); }}
+                              >
+                                <Icon name="play" size={13} />
+                              </button>
                             )}
                           </td>
                         </tr>

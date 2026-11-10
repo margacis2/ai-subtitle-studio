@@ -177,10 +177,14 @@ export default function Processing({
         if (pr.audioOptimization) {
           const origMb = (pr.audioOptimization.originalSize / (1024 * 1024)).toFixed(1);
           const optMb = (pr.audioOptimization.optimizedSize / (1024 * 1024)).toFixed(1);
-          logEv(
-            "ok",
-            `Media optimized: ${origMb} MB → ${optMb} MB (${pr.audioOptimization.format.toUpperCase()} 16kHz mono, saved ${pr.audioOptimization.compressionRatio}%)`
-          );
+          const { changeType, changePercent, format } = pr.audioOptimization;
+          const label =
+            changeType === "reduced"
+              ? `Audio size reduced by ${changePercent}% (${origMb} MB → ${optMb} MB)`
+              : changeType === "expanded"
+              ? `WAV expanded by ${changePercent}% for uncompressed 16kHz ASR (${origMb} MB → ${optMb} MB)`
+              : `Audio ready: ${optMb} MB (${format.toUpperCase()} 16kHz mono)`;
+          logEv("ok", label);
         }
         if (v.speechRatio > 0) {
           logEv(v.real ? "ok" : "warn", `VAD — ${Math.round(v.speechRatio * 100)}% speech · ${v.intervals} voice intervals${v.real ? " (energy VAD on real PCM)" : ""}`);

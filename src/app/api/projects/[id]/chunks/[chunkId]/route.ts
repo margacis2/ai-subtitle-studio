@@ -94,8 +94,11 @@ export async function POST(req: Request, { params }: Params) {
       // 2. Prepare request payload
       const formData = new FormData();
       formData.append("source_lang", project.sourceLang || "auto");
-      formData.append("target_lang", project.targetLang || "original");
       formData.append("model_id", project.asrModel === "auto" ? "small" : project.asrModel || "small");
+      formData.append("device", project.device || "auto");
+      formData.append("compute_type", project.computeType || "auto");
+      formData.append("workers", String(project.workers || 0));
+      formData.append("vad_filter", String(project.vadEnabled));
       formData.append("word_timestamps", "true");
 
       if (fs.existsSync(sendPath)) {
@@ -121,12 +124,12 @@ export async function POST(req: Request, { params }: Params) {
         let errDetail = "";
         try {
           const j = await response.json();
-          errDetail = j.detail || j.error || j.message || "";
+          errDetail = j.detail?.error || j.detail || j.error || j.message || "";
         } catch {
           errDetail = await response.text().catch(() => "");
         }
         throw new Error(
-          `Whisper backend returned status ${response.status}${errDetail ? `: ${errDetail.slice(0, 200)}` : ""}`
+          `Whisper backend returned status ${response.status}${errDetail ? `: ${typeof errDetail === "object" ? JSON.stringify(errDetail) : errDetail}` : ""}`
         );
       }
 
@@ -168,7 +171,7 @@ export async function POST(req: Request, { params }: Params) {
           endMs: s.endMs,
           speaker: s.speaker || null,
           original: s.original || s.text || "",
-          translation: s.translation || s.text || "",
+          translation: "", // Stage 1: pure original transcript
           confidence: s.confidence || 90,
           kind: "speech",
         }))
@@ -214,7 +217,7 @@ export async function POST(req: Request, { params }: Params) {
         endMs: s.endMs,
         speaker: s.speaker || null,
         original: s.original || s.text || "",
-        translation: s.translation || s.text || "",
+        translation: "",
         confidence: s.confidence || 90,
         kind: "speech",
         lang: primaryLang,

@@ -24,6 +24,7 @@ export default function PreviewPlayer({
   speakerOn,
   seekTo,
   onTime,
+  isAudio,
 }: {
   src: string;
   lines: SubLine[];
@@ -31,6 +32,7 @@ export default function PreviewPlayer({
   speakerOn: boolean;
   seekTo: number | null;
   onTime?: (tMs: number) => void;
+  isAudio?: boolean;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const ref = useRef<HTMLVideoElement>(null);
@@ -149,6 +151,24 @@ export default function PreviewPlayer({
             setError("This media format cannot be played natively in browser. Subtitle timestamps remain fully functional.")
           }
         />
+
+        {/* Audio track visualizer overlay if audio-only */}
+        {isAudio && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-gradient-to-b from-neutral-900 via-neutral-950 to-black pointer-events-none">
+            <div className="flex items-center gap-1.5 h-16 mb-4">
+              {[40, 65, 80, 50, 95, 75, 45, 60, 90, 70, 85, 55, 65, 75, 90, 60, 45, 70].map((h, i) => (
+                <div
+                  key={i}
+                  className={`w-1.5 rounded-full transition-all duration-150 ${playing ? "bg-cyan-400" : "bg-neutral-600"}`}
+                  style={{
+                    height: playing ? `${Math.max(15, h * (0.6 + Math.sin(t * 5 + i) * 0.4))}%` : `${h * 0.4}%`,
+                  }}
+                />
+              ))}
+            </div>
+            <span className="text-xs font-mono text-neutral-400">Synchronized Audio Track</span>
+          </div>
+        )}
 
         {/* Big play overlay when paused */}
         {!playing && !error && (

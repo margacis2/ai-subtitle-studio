@@ -71,8 +71,13 @@ export interface AudioOptimizationDetail {
   path: string;
   originalSize: number;
   optimizedSize: number;
-  compressionRatio: number;
+  changePercent: number;
+  changeType: "reduced" | "expanded" | "unchanged";
   format: "wav" | "mp3";
+  sampleRate?: number;
+  channels?: number;
+  codec?: string;
+  compressionRatio?: number;
 }
 
 export const prepareProject = (id: string) =>

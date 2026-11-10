@@ -3,88 +3,129 @@ import sys
 import time
 import threading
 import gc
+import traceback
 from typing import Optional, Dict, Any, List
 
-# Ensure current directory DLLs are available on Windows
-ROOT_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Locate project root dynamically to find cublas64_12.dll and cublasLt64_12.dll
+def find_project_root():
+    curr = os.path.abspath(os.path.dirname(__file__))
+    for _ in range(6):
+        if os.path.exists(os.path.join(curr, "cublas64_12.dll")) or os.path.exists(os.path.join(curr, "package.json")):
+            return curr
+        parent = os.path.dirname(curr)
+        if parent == curr:
+            break
+        curr = parent
+    return curr
+
+ROOT_DIR = find_project_root()
 if sys.platform == "win32":
     os.environ["PATH"] = ROOT_DIR + os.pathsep + os.environ.get("PATH", "")
     if hasattr(os, "add_dll_directory") and os.path.isdir(ROOT_DIR):
         try:
             os.add_dll_directory(ROOT_DIR)
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[WARN] Failed to add DLL directory {ROOT_DIR}: {e}")
 
 from backend.app.core.hardware import get_model_cache_dir, detect_hardware
 
 _model_instance = None
-_current_model_id = None
+_current_model_key = None
 _engine_lock = threading.Lock()
 
-def get_whisper_engine(model_id: str = "small", preferred_device: str = "auto"):
+def get_whisper_engine(
+    model_id: str = "small",
+    preferred_device: str = "auto",
+    compute_type: str = "auto",
+    workers: int = 0
+):
     """
-    Get or load the Faster-Whisper model instance with automatic hardware fallback.
-    Tries CUDA (float16 -> int8_float16 -> int8) then CPU (int8).
+    Get or load the Faster-Whisper model instance.
+    Supports CUDA with float16 / int8_float16 / int8, with graceful CPU int8 fallback.
     """
-    global _model_instance, _current_model_id
+    global _model_instance, _current_model_key
+    model_key = f"{model_id}:{preferred_device}:{compute_type}"
+
     with _engine_lock:
-        if _model_instance is not None and _current_model_id == model_id:
+        if _model_instance is not None and _current_model_key == model_key:
             return _model_instance
 
-        # Unload existing to free VRAM
+        # Unload existing model to free VRAM/RAM
         if _model_instance is not None:
             del _model_instance
             _model_instance = None
             gc.collect()
+            try:
+                import torch
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+            except Exception:
+                pass
 
         from faster_whisper import WhisperModel
         cache_dir = get_model_cache_dir()
         hw = detect_hardware()
 
-        use_cuda = (preferred_device == "cuda") or (preferred_device == "auto" and hw["cuda_available"])
+        use_cuda = False
+        if preferred_device == "cuda":
+            use_cuda = True
+        elif preferred_device == "auto":
+            use_cuda = bool(hw.get("cuda_available", False))
+
         loaded = None
-        loaded_device = "cpu"
-        loaded_compute = "int8"
+        used_device = "cpu"
+        used_compute = "int8"
 
         if use_cuda:
-            for compute in ("float16", "int8_float16", "int8"):
+            # Candidates for CUDA compute types
+            if compute_type not in ("auto", "", None):
+                computes = [compute_type]
+            else:
+                computes = ["float16", "int8_float16", "int8"]
+
+            for comp in computes:
                 try:
+                    print(f"[*] Initializing Faster-Whisper '{model_id}' on CUDA ({comp})...")
                     loaded = WhisperModel(
                         model_id,
                         device="cuda",
-                        compute_type=compute,
+                        compute_type=comp,
                         download_root=cache_dir
                     )
-                    loaded_device = "cuda"
-                    loaded_compute = compute
+                    used_device = "cuda"
+                    used_compute = comp
+                    print(f"[✓] Faster-Whisper '{model_id}' loaded on CUDA ({comp})")
                     break
                 except Exception as exc:
-                    print(f"CUDA {compute} init failed: {exc}")
+                    print(f"[WARN] CUDA {comp} failed: {exc}")
 
         if loaded is None:
-            threads = max(2, (os.cpu_count() or 4) // 2)
+            threads = workers if workers > 0 else max(2, (os.cpu_count() or 4) // 2)
+            comp = compute_type if compute_type in ("int8", "float32") else "int8"
+            print(f"[*] Initializing Faster-Whisper '{model_id}' on CPU ({comp}, {threads} threads)...")
             loaded = WhisperModel(
                 model_id,
                 device="cpu",
-                compute_type="int8",
+                compute_type=comp,
                 cpu_threads=threads,
                 download_root=cache_dir
             )
-            loaded_device = "cpu"
-            loaded_compute = "int8"
+            used_device = "cpu"
+            used_compute = comp
+            print(f"[✓] Faster-Whisper '{model_id}' loaded on CPU ({comp})")
 
         _model_instance = loaded
-        _current_model_id = model_id
+        _current_model_key = model_key
         return _model_instance
 
 def release_whisper_engine():
     """Explicitly release model from VRAM/RAM."""
-    global _model_instance, _current_model_id
+    global _model_instance, _current_model_key
     with _engine_lock:
         if _model_instance is not None:
             del _model_instance
             _model_instance = None
-            _current_model_id = None
+            _current_model_key = None
             gc.collect()
             try:
                 import torch
@@ -97,20 +138,32 @@ def transcribe_audio_file(
     audio_path: str,
     model_id: str = "small",
     source_lang: Optional[str] = None,
-    word_timestamps: bool = False,
+    preferred_device: str = "auto",
+    compute_type: str = "auto",
+    word_timestamps: bool = True,
     beam_size: int = 5,
-    vad_filter: bool = True
+    vad_filter: bool = True,
+    workers: int = 0
 ) -> Dict[str, Any]:
-    """Transcribe an audio file and return structured segments with accurate timestamps."""
+    """
+    Transcribes an audio file into its ORIGINAL language with precise timestamps.
+    Returns structured segments and detection metadata.
+    """
     if not os.path.exists(audio_path):
         raise FileNotFoundError(f"Audio file not found: {audio_path}")
 
-    model = get_whisper_engine(model_id=model_id)
+    model = get_whisper_engine(
+        model_id=model_id,
+        preferred_device=preferred_device,
+        compute_type=compute_type,
+        workers=workers
+    )
+
     lang = None if not source_lang or source_lang.lower() in ("auto", "") else source_lang.lower().split("-")[0]
 
     t0 = time.time()
     raw_segments = []
-    detected_lang = lang or "ja"
+    detected_lang = lang or "auto"
 
     try:
         segments_gen, info = model.transcribe(
@@ -125,10 +178,10 @@ def transcribe_audio_file(
         raw_segments = list(segments_gen)
         detected_lang = info.language
     except Exception as exc:
-        print(f"[WARN] Primary transcription error ({exc}). Attempting CPU int8 fallback...")
+        print(f"[WARN] Primary inference error ({exc}). Attempting CPU int8 fallback...")
         release_whisper_engine()
-        from faster_whisper import WhisperModel
         threads = max(2, (os.cpu_count() or 4) // 2)
+        from faster_whisper import WhisperModel
         cpu_model = WhisperModel(
             model_id,
             device="cpu",
@@ -159,7 +212,7 @@ def transcribe_audio_file(
             "startMs": int(round(s.start * 1000)),
             "endMs": int(round(s.end * 1000)),
             "original": text,
-            "translation": text,
+            "translation": "",  # Stage 1: pure original transcript
             "text": text,
             "confidence": int(round((1.0 - float(getattr(s, "no_speech_prob", 0.0))) * 100)),
             "lang": detected_lang
@@ -177,8 +230,7 @@ def transcribe_audio_file(
 
     return {
         "language": detected_lang,
-        "duration": info.duration,
+        "duration": getattr(info, "duration", 0.0),
         "processingTimeSec": round(elapsed, 2),
         "segments": results
     }
-
