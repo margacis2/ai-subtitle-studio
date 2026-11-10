@@ -126,3 +126,19 @@ export function fmtDurSec(sec: number): string {
   const s = Math.round(sec % 60);
   return h > 0 ? `${h}h ${p2(m)}m` : m > 0 ? `${m}m ${p2(s)}s` : `${s}s`;
 }
+
+export function fmtDate(iso: string): string {
+  try {
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return iso;
+    return d.toLocaleDateString(undefined, {
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  } catch {
+    return iso;
+  }
+}
+

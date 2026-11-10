@@ -3,10 +3,56 @@ import type { SVGProps } from "react";
 const P: Record<string, React.ReactNode> = {
   logo: (
     <>
-      <path d="M3 12h3l2.5-6 4 12 2.5-6H21" />
-      <circle cx="12" cy="12" r="9.2" />
+      <rect x="2" y="4" width="20" height="16" rx="3.5" stroke="currentColor" strokeWidth="1.8" />
+      <path d="M6 14v-2M9 16v-6M12 17v-8M15 15v-4M18 13v-1" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      <circle cx="18" cy="7" r="1.5" fill="currentColor" />
     </>
   ),
+  dashboard: (
+    <>
+      <rect x="3" y="3" width="7" height="9" rx="1.5" />
+      <rect x="14" y="3" width="7" height="5" rx="1.5" />
+      <rect x="14" y="12" width="7" height="9" rx="1.5" />
+      <rect x="3" y="16" width="7" height="5" rx="1.5" />
+    </>
+  ),
+  library: (
+    <>
+      <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1-2.5-2.5Z" />
+      <path d="M6 6h10M6 10h10M6 14h6" />
+    </>
+  ),
+  tools: (
+    <>
+      <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
+    </>
+  ),
+  history: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <polyline points="12 7 12 12 15 15" />
+    </>
+  ),
+  about: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <line x1="12" y1="16" x2="12" y2="12" />
+      <line x1="12" y1="8" x2="12.01" y2="8" strokeWidth="2.5" />
+    </>
+  ),
+  sun: (
+    <>
+      <circle cx="12" cy="12" r="4" />
+      <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
+    </>
+  ),
+  moon: (
+    <>
+      <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" />
+    </>
+  ),
+  "arrow-left": <path d="m12 19-7-7 7-7M5 12h14" />,
+  "arrow-right": <path d="m12 5 7 7-7 7M19 12H5" />,
   film: (
     <>
       <rect x="3" y="4" width="18" height="16" rx="2" />

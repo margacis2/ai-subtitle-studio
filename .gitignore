@@ -2,7 +2,7 @@ node_modules/
 .next/
 out/
 data/
-logs/
+/logs/
 *.log
 .env
 .DS_Store
