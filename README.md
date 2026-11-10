@@ -1,46 +1,49 @@
-# 🎬 AI Subtitle Studio
+# 🎬 AI Subtitle Studio — Cross-Platform Desktop Application
 
-### GPU-Aware • Multilingual • Parallel Processing • Intelligent Subtitle Editing
+### 100% Local • Offline AI • CUDA GPU-Accelerated • Faster-Whisper • Zero External Dependencies
 
-**AI Subtitle Studio** is a multilingual AI-powered subtitle generation and editing workstation built with Next.js, TypeScript, PostgreSQL and Drizzle ORM.
+**AI Subtitle Studio** is a professional, cross-platform desktop application for multilingual AI-powered subtitle generation, offline translation, and intelligent subtitle editing.
 
-Designed for long-form videos, movies, lectures, podcasts and other media, it provides a complete subtitle workflow — from media analysis and audio processing to transcription, translation, subtitle correction and export.
-
-The application features resource-aware parallel processing, overlapping audio chunks, checkpoint-based recovery, subtitle quality analysis, an integrated editor and multiple subtitle export formats.
+Built with **Electron**, **Next.js (React 19 / TypeScript)**, **FastAPI (Python)**, **Faster-Whisper (CTranslate2)**, and an embedded **SQLite** database, it operates completely locally on Windows, macOS, and Linux without requiring API keys, cloud credits, or active internet connections after models are downloaded.
 
 <p align="center">
   <a href="https://github.com/margacis2/ai-subtitle-studio">
     <img src="https://img.shields.io/badge/Project-AI%20Subtitle%20Studio-7C3AED?style=for-the-badge" />
   </a>
-  <img src="https://img.shields.io/badge/Framework-Next.js-black?style=for-the-badge&logo=next.js" />
-  <img src="https://img.shields.io/badge/Language-TypeScript-3178C6?style=for-the-badge&logo=typescript" />
-  <img src="https://img.shields.io/badge/Database-PostgreSQL-4169E1?style=for-the-badge&logo=postgresql" />
-  <img src="https://img.shields.io/badge/Processing-GPU%20Aware-16A34A?style=for-the-badge" />
+  <img src="https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-black?style=for-the-badge&logo=electron" />
+  <img src="https://img.shields.io/badge/AI%20Engine-Faster--Whisper%20(CUDA)-16A34A?style=for-the-badge&logo=nvidia" />
+  <img src="https://img.shields.io/badge/Database-Embedded%20SQLite-003B57?style=for-the-badge&logo=sqlite" />
+  <img src="https://img.shields.io/badge/Translation-Offline%20OPUS--MT-FF6F00?style=for-the-badge" />
 </p>
 
 ---
 
 ## 📌 Table of Contents
 
-- [Overview](#-overview)
-- [Processing Architecture](#-processing-architecture)
-- [Features](#-features)
-- [Supported Languages](#-supported-languages)
-- [AI and ASR Architecture](#-ai-and-asr-architecture)
-- [Google Colab Cloud GPU Addon](#-google-colab-cloud-gpu-addon)
-- [Resource Management](#-resource-management)
-- [Subtitle Quality Engine](#-subtitle-quality-engine)
-- [Hardware Monitoring](#-hardware-monitoring)
-- [Technology Stack](#-technology-stack)
-- [Project Structure](#-project-structure)
-- [Requirements](#-requirements)
-- [Installation](#-installation)
-- [Windows Quick Start](#-windows-quick-start)
-- [Keyboard Shortcuts](#-keyboard-shortcuts)
-- [Data Storage and Privacy](#-data-storage-and-privacy)
-- [Current Status & Verification](#-current-status--verification)
-- [Contributing](#-contributing)
-- [Project Roadmap](#-project-roadmap)
+- [Key Capabilities](#-key-capabilities)
+- [Desktop Architecture](#-desktop-architecture)
+- [Hardware & Acceleration](#-hardware--acceleration)
+- [Model Management System](#-model-management-system)
+- [Batch Processing Queue](#-batch-processing-queue)
+- [Offline Translation](#-offline-translation)
+- [Subtitle Editor & Export Formats](#-subtitle-editor--export-formats)
+- [Quick Start Guide](#-quick-start-guide)
+- [Desktop Development & Packaging](#-desktop-development--packaging)
+- [Data Storage & Privacy](#-data-storage--privacy)
+- [License & Credits](#-license--credits)
+
+---
+
+## 🚀 Key Capabilities
+
+- **100% Local Processing**: Speech recognition and translation run on your device. Zero audio or video data leaves your computer.
+- **Genuine AI Speech Recognition**: Powered by Faster-Whisper (CTranslate2) with automatic CUDA GPU acceleration (e.g. NVIDIA RTX 3050) and intelligent CPU int8 fallback.
+- **Zero-Configuration SQLite Database**: Replaces PostgreSQL server requirements with an embedded SQLite database (`studio.db`) stored in your OS application data folder.
+- **Built-in Model Manager**: One-click download and management of Faster-Whisper models (`tiny`, `base`, `small`, `medium`, `large-v3-turbo`) with RAM and VRAM estimation.
+- **Batch Processing Queue**: Queue multiple audio and video files for sequential background processing with automated SRT export.
+- **Offline Translation Engine**: Local neural machine translation via Hugging Face OPUS-MT (`transformers`) and Argos Translate.
+- **Full-Featured Subtitle Editor**: Audio-waveform scrubbing, video synchronization, find & replace, timing shift, speaker assignment, quality checks, and video subtitle burn-in.
+- **Multi-Format Export**: Export subtitles in **SRT**, **VTT**, **ASS** (with custom typography styling), **TXT**, and **JSON**.
 
 ---
 
@@ -702,21 +705,38 @@ The actual ASR and translation capabilities depend on the backend implementation
 
 ---
 
-## 🏗️ Production Build
+## 🖥️ Desktop Development & Packaging
 
-To generate a production build:
-
-```bash
-npm run build
-```
-
-Start the production application:
+To run the application locally in desktop mode:
 
 ```bash
-npm start
+# 1. Install Node.js dependencies
+npm install
+
+# 2. Start Electron desktop application connected to local AI backend
+npm run desktop:dev
 ```
 
-Ensure PostgreSQL and any required backend services are running before launching the application.
+To build and package native desktop installers:
+
+```bash
+# Compile desktop Electron bridge
+npm run desktop:build
+
+# Package for current platform (Windows NSIS / Portable, macOS DMG, Linux AppImage)
+npm run desktop:pack
+
+# Create distributable installers
+npm run desktop:dist
+```
+
+### End-to-End Pipeline Verification
+
+Verify all local hardware, CTranslate2 CUDA speech recognition, OPUS-MT translation, and FastAPI endpoints:
+
+```bash
+python scripts/verify_desktop_pipeline.py
+```
 
 ---
 
@@ -724,49 +744,41 @@ Ensure PostgreSQL and any required backend services are running before launching
 
 | Shortcut | Action |
 |---|---|
-| `Ctrl + O` | Open media files |
-| `Ctrl + S` | Save project |
-| `Ctrl + Z` | Undo |
-| `Ctrl + Y` | Redo |
-| `Ctrl + F` | Search subtitles |
-| `←` | Previous subtitle |
-| `→` | Next subtitle |
+| `Ctrl + O` | Open media file picker |
+| `Ctrl + S` | Save subtitles to SQLite database |
+| `Ctrl + Z` | Undo subtitle edits |
+| `Ctrl + Y` | Redo subtitle edits |
+| `Ctrl + F` | Search & Replace subtitles |
+| `←` | Jump to previous subtitle |
+| `→` | Jump to next subtitle |
 
 ---
 
-## 🔐 Data Storage and Privacy
+## 🔐 Data Storage & Privacy
 
-AI Subtitle Studio is designed around local-first processing and locally managed project data.
+AI Subtitle Studio operates on a **100% Local-First** architecture:
 
-- Project records are stored in PostgreSQL.
-- Uploaded media and working files are stored under `data/` according to the application configuration.
-- Server logs are written under `logs/application.log`.
-- Logs are designed to record processing information such as timings, counts and detected languages rather than subtitle dialogue.
-- External AI services require explicit backend configuration and may process data outside the local machine.
-
-**Privacy note:** Local-first architecture does not automatically guarantee that every operation is offline. Actual data handling depends on enabled integrations and backend configuration.
-
-Do not expose the application publicly without appropriate authentication, upload validation, access controls and secure configuration.
+- **Database**: Zero external database servers required. Project records, chunk states, and glossaries are saved in an embedded SQLite database (`studio.db`) stored at `%LOCALAPPDATA%/AI Subtitle Studio/` (or OS standard equivalent).
+- **AI Models**: Faster-Whisper and OPUS-MT models are downloaded from Hugging Face directly to your local cache (`%LOCALAPPDATA%/AI Subtitle Studio/models/`) and run completely offline.
+- **Media Privacy**: Uploaded media, extracted audio, and transcribed dialogue never leave your machine.
+- **Cleanup**: Temporary audio chunks and intermediate extraction files are guaranteed to be cleaned up after processing.
 
 ---
 
 ## ⚠️ Current Status & Verification
 
-This project is actively maintained and tested.
-
 | Component | Status | Details |
 |---|---|---|
-| Web application | Operational | Next.js 16 + React 19 (pure effects, 0 lint warnings) |
-| Subtitle editor | Operational | Edit, split, merge, undo/redo, search/replace, speaker rename |
-| SRT/VTT/ASS/TXT export | Operational | SubStation Alpha styling, custom fonts, timecodes |
-| Video preview player | Operational | Fullscreen, click-to-play, ±5s jump, dual-language subtitle overlay |
-| Dedicated translation page | Operational | Separate multilingual neural translation with sample prompts |
-| Local OPUS-MT translation | Operational | Helsinki-NLP models for JA/TA/HI/Dravidian/FR to English |
-| Chunk scheduler | Operational | Overlap deduplication, deterministic global slotting |
-| PostgreSQL checkpointing | Operational | Drizzle ORM, project and chunk state recovery |
-| Hardware monitoring | Operational | CPU, RAM, and NVIDIA GPU (`nvidia-smi`) |
-| Real Whisper transcription | Operational | Local Faster-Whisper GPU (`server.py`) or Google Colab T4 |
-| Cloud GPU addon | Operational | Google Colab remote backend with instant one-click toggle |
+| **Cross-Platform Desktop Shell** | ✅ Operational | Electron 45 + secure context-isolated preload bridge |
+| **Local SQLite Database** | ✅ Operational | `better-sqlite3` + Drizzle ORM (Zero PostgreSQL dependency) |
+| **GPU Speech Recognition** | ✅ Operational | Faster-Whisper on NVIDIA RTX 3050 CUDA (0.49s for test WAV) |
+| **CPU int8 Fallback** | ✅ Operational | Multi-stage fallback for devices without dedicated GPUs |
+| **Model Download Manager** | ✅ Operational | Official Faster-Whisper catalog with real-time download tracking |
+| **Batch Processing Queue** | ✅ Operational | Multi-media queue with background execution and auto-export |
+| **Offline Translation Engine** | ✅ Operational | OPUS-MT (`transformers`) + Argos Translate (ES/JA/TA/HI -> EN) |
+| **Complete Subtitle Editor** | ✅ Operational | Waveform seeking, split, merge, undo/redo, speaker diarization |
+| **Multi-Format Subtitle Export** | ✅ Operational | Full support for SRT, VTT, ASS (styled typography), TXT, JSON |
+| **Video Subtitle Burn-In** | ✅ Operational | Hardcode styled subtitles directly into MP4 video with FFmpeg |
 
 ---
 

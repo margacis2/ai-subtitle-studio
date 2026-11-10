@@ -2,14 +2,21 @@
   "name": "ai-subtitle-studio",
   "version": "2.0.1",
   "private": true,
+  "main": "dist/desktop/main/index.js",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "desktop:build": "tsc -p desktop/tsconfig.json",
+    "desktop:dev": "concurrently -k \"next dev\" \"wait-on http://localhost:3000 && npm run desktop:build && electron .\"",
+    "desktop:pack": "npm run desktop:build && electron-builder --dir",
+    "desktop:dist": "npm run desktop:build && electron-builder"
   },
   "dependencies": {
+    "@types/better-sqlite3": "^9.6.0",
+    "better-sqlite3": "^13.0.3",
     "dotenv": "17.3.1",
     "drizzle-orm": "0.45.2",
     "next": "^16.2.6",
@@ -23,11 +30,15 @@
     "@types/pg": "8.18.0",
     "@types/react": "19.2.14",
     "@types/react-dom": "19.2.3",
+    "concurrently": "^10.0.7",
     "drizzle-kit": "^0.31.10",
+    "electron": "^45.2.3",
+    "electron-builder": "^26.18.0",
     "eslint": "9.39.4",
     "eslint-config-next": "16.2.6",
     "postcss": "^8.5.8",
     "tailwindcss": "4.1.17",
-    "typescript": "5.9.3"
+    "typescript": "5.9.3",
+    "wait-on": "^9.5.1"
   }
 }

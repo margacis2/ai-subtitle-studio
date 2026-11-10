@@ -44,7 +44,7 @@ export async function PUT(req: Request, { params }: Params) {
   }
   const [updated] = await db
     .update(projects)
-    .set({ updatedAt: new Date() })
+    .set({ updatedAt: new Date().toISOString() })
     .where(eq(projects.id, id))
     .returning();
   void updated;

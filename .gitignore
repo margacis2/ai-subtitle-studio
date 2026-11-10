@@ -9,4 +9,10 @@ logs/
 *.dll
 *.tsbuildinfo
 sample_optimized_audio.wav
+dist/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
 

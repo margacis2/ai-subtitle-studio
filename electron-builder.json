@@ -1,0 +1,59 @@
+{
+  "appId": "com.aisubtitlestudio.app",
+  "productName": "AI Subtitle Studio",
+  "copyright": "Copyright © 2026 AI Subtitle Studio",
+  "directories": {
+    "output": "release"
+  },
+  "files": [
+    "dist/desktop/**/*",
+    "out/**/*",
+    "backend/**/*",
+    "*.dll"
+  ],
+  "extraMetadata": {
+    "main": "dist/desktop/main/index.js"
+  },
+  "win": {
+    "target": [
+      {
+        "target": "nsis",
+        "arch": ["x64"]
+      },
+      {
+        "target": "portable",
+        "arch": ["x64"]
+      }
+    ],
+    "artifactName": "${productName}-Setup-${version}.${ext}"
+  },
+  "nsis": {
+    "oneClick": false,
+    "allowToChangeInstallationDirectory": true,
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true
+  },
+  "mac": {
+    "target": [
+      {
+        "target": "dmg",
+        "arch": ["x64", "arm64"]
+      }
+    ],
+    "category": "public.app-category.video"
+  },
+  "linux": {
+    "target": [
+      {
+        "target": "AppImage",
+        "arch": ["x64"]
+      },
+      {
+        "target": "deb",
+        "arch": ["x64"]
+      }
+    ],
+    "category": "AudioVideo"
+  }
+}
+

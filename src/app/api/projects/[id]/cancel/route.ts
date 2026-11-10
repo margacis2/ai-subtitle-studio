@@ -19,7 +19,7 @@ export async function POST(_req: Request, { params }: Params) {
     .where(and(eq(chunks.projectId, id), inArray(chunks.status, ["WAITING", "PROCESSING"])));
   const [updated] = await db
     .update(projects)
-    .set({ status: "cancelled", stage: "cancelled", updatedAt: new Date() })
+    .set({ status: "cancelled", stage: "cancelled", updatedAt: new Date().toISOString() })
     .where(eq(projects.id, id))
     .returning();
   log(`project.cancelled id=${id} progress=${project.progress}`);

@@ -156,7 +156,7 @@ export async function POST(req: Request, { params }: Params) {
         progress,
         stage: completed === total ? "merge" : "asr",
         status: "processing",
-        updatedAt: new Date(),
+        updatedAt: new Date().toISOString(),
       })
       .where(eq(projects.id, id));
 

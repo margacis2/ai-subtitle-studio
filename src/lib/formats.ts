@@ -105,6 +105,25 @@ export function toTxt(
     .join("\n") + "\n";
 }
 
+export function toJson(
+  lines: SubLine[],
+  field: ExportField,
+  speakerOn: boolean,
+): string {
+  const data = lines.map((l, i) => ({
+    index: i + 1,
+    startMs: l.startMs,
+    endMs: l.endMs,
+    startTime: fmtSrtTime(l.startMs),
+    endTime: fmtSrtTime(l.endMs),
+    speaker: speakerOn ? l.speaker || null : null,
+    text: lineText(l, field, speakerOn),
+    original: l.original,
+    translation: l.translation || null,
+  }));
+  return JSON.stringify(data, null, 2);
+}
+
 export function downloadText(filename: string, content: string, mime = "text/plain;charset=utf-8") {
   const blob = new Blob([content], { type: mime });
   const url = URL.createObjectURL(blob);

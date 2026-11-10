@@ -9,6 +9,7 @@ import {
   DEFAULT_ASS_STYLE,
   downloadText,
   toAss,
+  toJson,
   toSrt,
   toTxt,
   toVtt,
@@ -110,7 +111,7 @@ export default function Editor({
   const [rText, setRText] = useState("");
   const [replaceCount, setReplaceCount] = useState<number | null>(null);
   const [shiftSec, setShiftSec] = useState("0.5");
-  const [exp, setExp] = useState<{ format: "srt" | "vtt" | "ass" | "txt"; field: ExportField; speakerOn: boolean; withTimes: boolean; style: AssStyle }>({
+  const [exp, setExp] = useState<{ format: "srt" | "vtt" | "ass" | "txt" | "json"; field: ExportField; speakerOn: boolean; withTimes: boolean; style: AssStyle }>({
     format: "srt",
     field: project.targetLang === "original" ? "original" : "translation",
     speakerOn: project.diarization,
@@ -403,6 +404,8 @@ export default function Editor({
         return { content: toAss(lines, exp.field, sp, exp.style), ext: "ass", mime: "text/x-ssa" };
       case "txt":
         return { content: toTxt(lines, exp.field, sp, exp.withTimes), ext: "txt", mime: "text/plain" };
+      case "json":
+        return { content: toJson(lines, exp.field, sp), ext: "json", mime: "application/json" };
       default:
         return { content: toSrt(lines, exp.field, sp), ext: "srt", mime: "application/x-subrip" };
     }
@@ -780,6 +783,7 @@ export default function Editor({
                       { value: "vtt", label: "VTT" },
                       { value: "ass", label: "ASS (styled)" },
                       { value: "txt", label: "TXT" },
+                      { value: "json", label: "JSON" },
                     ]}
                   />
                 </Field>

@@ -1,14 +1,6 @@
-import {
-  pgTable,
-  text,
-  integer,
-  real,
-  boolean,
-  timestamp,
-  index,
-} from "drizzle-orm/pg-core";
+import { sqliteTable, text, integer, real } from "drizzle-orm/sqlite-core";
 
-export const projects = pgTable("projects", {
+export const projects = sqliteTable("projects", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
   fileName: text("file_name").notNull(),
@@ -24,11 +16,11 @@ export const projects = pgTable("projects", {
   chunkSizeSec: integer("chunk_size_sec").notNull().default(600),
   overlapSec: integer("overlap_sec").notNull().default(3),
   mode: text("mode").notNull().default("balanced"),
-  vadEnabled: boolean("vad_enabled").notNull().default(true),
-  diarization: boolean("diarization").notNull().default(false),
-  nonSpeechEvents: boolean("non_speech_events").notNull().default(false),
+  vadEnabled: integer("vad_enabled", { mode: "boolean" }).notNull().default(true),
+  diarization: integer("diarization", { mode: "boolean" }).notNull().default(false),
+  nonSpeechEvents: integer("non_speech_events", { mode: "boolean" }).notNull().default(false),
   profanityMode: text("profanity_mode").notNull().default("preserve"),
-  autoPunctuate: boolean("auto_punctuate").notNull().default(true),
+  autoPunctuate: integer("auto_punctuate", { mode: "boolean" }).notNull().default(true),
   status: text("status").notNull().default("pending"),
   stage: text("stage").notNull().default("idle"),
   progress: integer("progress").notNull().default(0),
@@ -38,55 +30,61 @@ export const projects = pgTable("projects", {
   processingTimeSec: real("processing_time_sec"),
   vadJson: text("vad_json"),
   engineNote: text("engine_note"),
-  startedAt: timestamp("started_at"),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  startedAt: text("started_at"),
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+  updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()),
 });
 
-export const chunks = pgTable(
-  "chunks",
-  {
-    id: text("id").primaryKey(),
-    projectId: text("project_id")
-      .notNull()
-      .references(() => projects.id, { onDelete: "cascade" }),
-    index: integer("index").notNull(),
-    startSec: real("start_sec").notNull(),
-    endSec: real("end_sec").notNull(),
-    status: text("status").notNull().default("WAITING"),
-    attempts: integer("attempts").notNull().default(0),
-    language: text("language"),
-    confidence: real("confidence"),
-    overlapRemoved: integer("overlap_removed").notNull().default(0),
-    durationMs: integer("duration_ms"),
-    createdAt: timestamp("created_at").notNull().defaultNow(),
-  },
-  (t) => [index("chunks_project_idx").on(t.projectId)],
-);
+export const chunks = sqliteTable("chunks", {
+  id: text("id").primaryKey(),
+  projectId: text("project_id").notNull(),
+  index: integer("index").notNull(),
+  startSec: real("start_sec").notNull(),
+  endSec: real("end_sec").notNull(),
+  status: text("status").notNull().default("WAITING"),
+  attempts: integer("attempts").notNull().default(0),
+  language: text("language"),
+  confidence: real("confidence"),
+  overlapRemoved: integer("overlap_removed").notNull().default(0),
+  durationMs: integer("duration_ms"),
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+});
 
-export const subtitles = pgTable(
-  "subtitles",
-  {
-    id: text("id").primaryKey(),
-    projectId: text("project_id")
-      .notNull()
-      .references(() => projects.id, { onDelete: "cascade" }),
-    seq: integer("seq").notNull(),
-    startMs: integer("start_ms").notNull(),
-    endMs: integer("end_ms").notNull(),
-    speaker: text("speaker"),
-    original: text("original").notNull().default(""),
-    translation: text("translation").notNull().default(""),
-    confidence: real("confidence").notNull().default(0),
-    kind: text("kind").notNull().default("speech"),
-    createdAt: timestamp("created_at").notNull().defaultNow(),
-  },
-  (t) => [index("subtitles_project_idx").on(t.projectId, t.seq)],
-);
+export const subtitles = sqliteTable("subtitles", {
+  id: text("id").primaryKey(),
+  projectId: text("project_id").notNull(),
+  seq: integer("seq").notNull(),
+  startMs: integer("start_ms").notNull(),
+  endMs: integer("end_ms").notNull(),
+  speaker: text("speaker"),
+  original: text("original").notNull().default(""),
+  translation: text("translation").notNull().default(""),
+  confidence: real("confidence").notNull().default(0),
+  kind: text("kind").notNull().default("speech"),
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+});
 
-export const glossary = pgTable("glossary", {
+export const glossary = sqliteTable("glossary", {
   id: text("id").primaryKey(),
   term: text("term").notNull(),
   translation: text("translation").notNull(),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+});
+
+export const batchJobs = sqliteTable("batch_jobs", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  filePath: text("file_path").notNull(),
+  fileSize: integer("file_size").notNull().default(0),
+  durationSec: real("duration_sec").notNull().default(0),
+  sourceLang: text("source_lang").notNull().default("auto"),
+  targetLang: text("target_lang").notNull().default("en"),
+  asrModel: text("asr_model").notNull().default("small"),
+  status: text("status").notNull().default("pending"), // pending | processing | completed | failed | paused
+  progress: integer("progress").notNull().default(0),
+  errorMsg: text("error_msg"),
+  projectId: text("project_id"),
+  outputSrtPath: text("output_srt_path"),
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+  updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()),
 });

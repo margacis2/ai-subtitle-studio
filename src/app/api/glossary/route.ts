@@ -22,7 +22,7 @@ export async function POST(req: Request) {
   const row = { id: newId(), term, translation };
   await db.insert(glossary).values(row);
   log(`glossary.add term="${term}"`);
-  return NextResponse.json(toGlossary({ ...row, createdAt: new Date() }), { status: 201 });
+  return NextResponse.json(toGlossary({ ...row, createdAt: new Date().toISOString() }), { status: 201 });
 }
 
 export async function DELETE(req: Request) {

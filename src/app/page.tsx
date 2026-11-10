@@ -11,10 +11,12 @@ import Editor from "@/components/Editor";
 import SettingsModal, { Prefs } from "@/components/SettingsModal";
 import TutorialModal from "@/components/TutorialModal";
 import TranslationView from "@/components/TranslationView";
+import ModelManagerView from "@/components/ModelManagerView";
+import BatchQueueView from "@/components/BatchQueueView";
 import { Btn } from "@/components/ui";
 import { Icon } from "@/components/icons";
 
-type View = "home" | "process" | "editor" | "translate";
+type View = "home" | "process" | "editor" | "translate" | "models" | "batch";
 interface Toast {
   id: number;
   tone: "ok" | "err" | "warn" | "info";
@@ -209,14 +211,51 @@ export default function Page() {
             <Icon name="wave" size={11} />
             Offline engine · EN/JA/TA/HI corpus
           </span>
-          <div className="ml-auto flex items-center gap-2">
+          <div className="ml-auto flex items-center gap-1.5 sm:gap-2">
             <Btn
               size="sm"
-              icon="film"
-              variant={tutorialOpen ? "primary" : undefined}
-              onClick={() => setTutorialOpen(true)}
+              icon="wave"
+              variant={view === "home" || view === "process" ? "primary" : undefined}
+              onClick={() => {
+                setView("home");
+                void refresh();
+              }}
             >
-              Guide &amp; Tutorial
+              Transcribe
+            </Btn>
+            <Btn
+              size="sm"
+              icon="scissors"
+              variant={view === "editor" ? "primary" : undefined}
+              onClick={() => {
+                if (active) {
+                  setView("editor");
+                } else if (projects.length > 0) {
+                  setActive(projects[0]);
+                  setView("editor");
+                } else {
+                  toast("info", "Create or open a project first to use the Subtitle Editor");
+                  setView("home");
+                }
+              }}
+            >
+              Editor
+            </Btn>
+            <Btn
+              size="sm"
+              icon="folder"
+              variant={view === "batch" ? "primary" : undefined}
+              onClick={() => setView("batch")}
+            >
+              Batch Queue
+            </Btn>
+            <Btn
+              size="sm"
+              icon="cpu"
+              variant={view === "models" ? "primary" : undefined}
+              onClick={() => setView("models")}
+            >
+              Models
             </Btn>
             <Btn
               size="sm"
@@ -226,8 +265,16 @@ export default function Page() {
             >
               Translate
             </Btn>
+            <Btn
+              size="sm"
+              icon="film"
+              variant={tutorialOpen ? "primary" : undefined}
+              onClick={() => setTutorialOpen(true)}
+            >
+              Guide
+            </Btn>
             {hw && (
-              <span className="chip hidden lg:inline-flex">
+              <span className="chip hidden xl:inline-flex">
                 <Icon name="gpu" size={11} />
                 {hw.gpuName ? `${hw.gpuName} · CUDA` : "CPU only"}
               </span>
@@ -270,6 +317,12 @@ export default function Page() {
           }}
           onToast={toast}
         />
+      )}
+      {view === "batch" && (
+        <BatchQueueView onToast={toast} />
+      )}
+      {view === "models" && (
+        <ModelManagerView onToast={toast} />
       )}
       {view === "translate" && (
         <TranslationView
