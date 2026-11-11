@@ -153,6 +153,19 @@ export default function Processing({
           /* handled by cancel flow */
         } else {
           logEv("err", `Chunk ${name} failed — ${msg}`);
+          const isPermanent = (e instanceof ApiError && (e.status === 404 || !e.retryable)) || msg.includes("not found");
+          setDetail((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  chunks: prev.chunks.map((x) =>
+                    x.id === c.id
+                      ? { ...x, status: "FAILED" as const, attempts: isPermanent ? 99 : (x.attempts || 0) + 1 }
+                      : x
+                  ),
+                }
+              : prev
+          );
         }
       }
       await refresh();
@@ -222,22 +235,26 @@ export default function Processing({
 
       d = await refresh();
       const failedChunks = d.chunks.filter((c) => c.status === "FAILED");
-      if (failedChunks.length > 0 && d.subtitles.length === 0) {
-        logEv("err", `Transcription failed: ${failedChunks.length} chunk(s) encountered unrecoverable errors.`);
-        onToast("err", "Transcription failed. Please check the logs and ensure backend is running.");
-        const upd = await patchProject(initial.id, {
-          status: "failed",
-          stage: "asr",
-          qualityScore: 0,
-        });
-        setDetail({ ...d, project: upd });
-        onProject(upd);
-        return;
+      if (failedChunks.length > 0) {
+        if (d.subtitles.length === 0) {
+          logEv("err", `Transcription failed: ${failedChunks.length} chunk(s) encountered unrecoverable errors.`);
+          onToast("err", "Transcription failed. Please inspect the logs.");
+          const upd = await patchProject(initial.id, {
+            status: "failed",
+            stage: "asr",
+            qualityScore: 0,
+          });
+          setDetail({ ...d, project: upd });
+          onProject(upd);
+          return;
+        } else {
+          logEv("warn", `${failedChunks.length} chunk(s) failed, but ${d.subtitles.length} partial subtitles were preserved.`);
+        }
       }
 
       if (d.subtitles.length === 0) {
-        logEv("warn", "No speech detected in audio file (0 subtitles generated).");
-        onToast("warn", "No speech was recognized in this file.");
+        logEv("warn", "ASR inference finished: No speech detected in audio file (0 subtitles generated).");
+        onToast("info", "No speech detected in audio file.");
         const upd = await patchProject(initial.id, {
           status: "completed",
           stage: "done",

@@ -29,10 +29,21 @@ export async function POST(req: Request, { params }: Params) {
     );
   }
 
-  const [chunk] = await db.select().from(chunks).where(eq(chunks.id, chunkId));
+  const [chunk] = await db
+    .select()
+    .from(chunks)
+    .where(and(eq(chunks.id, chunkId), eq(chunks.projectId, id)));
+
   if (!chunk) {
     return NextResponse.json(
-      { error: "Chunk not found", code: "CHUNK_NOT_FOUND", stage: "transcription", retryable: false },
+      {
+        error: `Chunk ${chunkId} not found for project ${id}`,
+        code: "CHUNK_NOT_FOUND",
+        stage: "transcription",
+        projectId: id,
+        chunkId,
+        retryable: false,
+      },
       { status: 404 }
     );
   }

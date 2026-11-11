@@ -33,9 +33,39 @@ export class AudioProcessingError extends Error {
   }
 }
 
+export function getFfmpegPath(): string {
+  if (process.env.FFMPEG_PATH && fs.existsSync(process.env.FFMPEG_PATH)) {
+    return process.env.FFMPEG_PATH;
+  }
+  const candidates = [
+    "C:\\ffmpeg\\ffmpeg.exe",
+    "C:\\ffmpeg\\bin\\ffmpeg.exe",
+    path.join(process.cwd(), "bin", "ffmpeg.exe"),
+  ];
+  for (const c of candidates) {
+    if (fs.existsSync(c)) return c;
+  }
+  return "ffmpeg";
+}
+
+export function getFfprobePath(): string {
+  if (process.env.FFPROBE_PATH && fs.existsSync(process.env.FFPROBE_PATH)) {
+    return process.env.FFPROBE_PATH;
+  }
+  const candidates = [
+    "C:\\ffmpeg\\ffprobe.exe",
+    "C:\\ffmpeg\\bin\\ffprobe.exe",
+    path.join(process.cwd(), "bin", "ffprobe.exe"),
+  ];
+  for (const c of candidates) {
+    if (fs.existsSync(c)) return c;
+  }
+  return "ffprobe";
+}
+
 export function hasFfmpeg(): boolean {
   try {
-    execFileSync("ffmpeg", ["-version"], { stdio: "ignore", timeout: 2500 });
+    execFileSync(getFfmpegPath(), ["-version"], { stdio: "ignore", timeout: 2500 });
     return true;
   } catch {
     return false;
@@ -44,7 +74,7 @@ export function hasFfmpeg(): boolean {
 
 export function hasFfprobe(): boolean {
   try {
-    execFileSync("ffprobe", ["-version"], { stdio: "ignore", timeout: 2500 });
+    execFileSync(getFfprobePath(), ["-version"], { stdio: "ignore", timeout: 2500 });
     return true;
   } catch {
     return false;
@@ -58,7 +88,7 @@ export function probeMedia(mediaPath: string): MediaProbeResult {
   }
 
   try {
-    const stdout = execFileSync("ffprobe", [
+    const stdout = execFileSync(getFfprobePath(), [
       "-v", "error",
       "-show_entries", "format=duration,format_name:stream=codec_type,codec_name",
       "-of", "json",
@@ -138,7 +168,7 @@ export async function extractWav(mediaPath: string, wavPath: string, timeoutMs =
     wavPath,
   ];
 
-  const result = await runCommand("ffmpeg", args, timeoutMs);
+  const result = await runCommand(getFfmpegPath(), args, timeoutMs);
 
   // Verification: check if valid WAV was created with non-zero audio content
   if (fs.existsSync(wavPath) && fs.statSync(wavPath).size > 1024) {
@@ -220,7 +250,7 @@ export async function extractOptimizedAudio(
 
   // Step 2: If WAV > 95MB, encode to compact 16kHz mono MP3
   const mp3Path = outputBasePath.replace(/\.[^.]+$/, "") + "_opt.mp3";
-  await runCommand("ffmpeg", [
+  await runCommand(getFfmpegPath(), [
     "-y",
     "-nostdin",
     "-fflags", "+discardcorrupt+genpts",

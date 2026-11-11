@@ -120,6 +120,21 @@ def remove_model(model_id: str):
     res = delete_whisper_model(model_id)
     return res
 
+from backend.app.core.benchmark import benchmark_model
+
+class BenchmarkEndpointRequest(BaseModel):
+    model_id: str = "small"
+    audio_path: Optional[str] = None
+
+@app.post("/benchmark")
+def run_benchmark_endpoint(req: BenchmarkEndpointRequest):
+    try:
+        res = benchmark_model(model_id=req.model_id, audio_path=req.audio_path)
+        return res
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
 class TranslateRequest(BaseModel):
     texts: List[str]
     source_lang: str = "ja"

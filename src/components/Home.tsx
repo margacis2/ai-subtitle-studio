@@ -131,21 +131,40 @@ export default function Home({
 
   const runBenchmark = async () => {
     const rows: BenchmarkRow[] = [];
-    for (const m of ASR_MODELS) {
-      setBenchRunning(m.name);
-      const t0 = performance.now();
-      transcribeChunk({
-        seed: "benchmark", durationSec: 120, startSec: 0, endSec: 120,
-        sourceLang: "auto", targetLang: "en", diarization: false, nonSpeechEvents: false,
-        profanityMode: "preserve", autoPunctuate: true, glossary: [],
-      });
-      await sleep(simulatedWorkMs(120, m.speedFactor, "balanced"));
-      const wall = (performance.now() - t0) / 1000;
-      rows.push({ model: m.name, speed: Math.round((120 / Math.max(0.01, wall)) * 10) / 10, accuracy: m.accuracy, vram: `${m.vramGb.toFixed(1)} GB`, wallSec: Math.round(wall * 100) / 100 });
+    const targetModels = ["tiny", "base", "small"];
+    setBenchRunning("Initializing benchmark...");
+    try {
+      for (const mId of targetModels) {
+        const mMeta = ASR_MODELS.find((x) => x.id === mId) || { name: mId, accuracy: "High", vramGb: 1.6 };
+        setBenchRunning(mMeta.name);
+        const res = await fetch("/api/benchmark", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ model_id: mId }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          const speedFactor = parseFloat((data.audio_duration_sec / Math.max(0.01, data.transcribe_time_sec)).toFixed(1));
+          rows.push({
+            model: `${mMeta.name} (${data.device === "cuda" ? "CUDA" : "CPU"})`,
+            speed: speedFactor,
+            accuracy: mMeta.accuracy,
+            vram: data.peak_vram_mb > 0 ? `${(data.peak_vram_mb / 1024).toFixed(1)} GB` : `${mMeta.vramGb} GB`,
+            wallSec: data.transcribe_time_sec,
+          });
+        }
+      }
+      if (rows.length > 0) {
+        setBenchmarks(rows);
+        onToast("ok", "Hardware benchmark finished — real RTF and inference speeds measured");
+      } else {
+        onToast("warn", "Benchmark completed with no results");
+      }
+    } catch (e: any) {
+      onToast("err", e.message || "Benchmark run failed");
+    } finally {
+      setBenchRunning(null);
     }
-    setBenchRunning(null);
-    setBenchmarks(rows);
-    onToast("ok", "Benchmark finished — results saved locally");
   };
 
   const start = (id: string) => onStart(id);

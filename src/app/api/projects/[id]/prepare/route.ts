@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
 import fs from "node:fs";
 import path from "node:path";
-import { eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { db } from "@/db";
-import { projects } from "@/db/schema";
+import { projects, chunks } from "@/db/schema";
+import { buildChunkPlan } from "@/lib/time";
 import {
   extractWav,
   extractOptimizedAudio,
@@ -13,7 +14,7 @@ import {
   AudioProcessingError,
   type AudioOptimizationResult,
 } from "@/lib/audio";
-import { log, projectUploadDir, projectWorkDir } from "@/lib/server";
+import { log, newId, projectUploadDir, projectWorkDir } from "@/lib/server";
 import type { VadSummary } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -131,8 +132,44 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
       note = "VAD disabled by user settings.";
     }
 
+    const actualDuration = probe.durationSec > 0 ? probe.durationSec : project.durationSec || 60;
+    const existingChunks = await db.select().from(chunks).where(eq(chunks.projectId, id));
+
+    if (existingChunks.length === 0) {
+      const chunkSizeSec = Number(project.chunkSizeSec) || 600;
+      const overlapSec = Math.max(0, Math.min(Number(project.overlapSec) || 3, 30));
+      const plan = buildChunkPlan(actualDuration, chunkSizeSec, overlapSec);
+      await db.insert(chunks).values(
+        plan.map((p) => ({
+          id: newId(),
+          projectId: id,
+          index: p.index,
+          startSec: p.startSec,
+          endSec: p.endSec,
+          status: "WAITING" as const,
+        }))
+      );
+      log(`prepare.chunks_created id=${id} count=${plan.length}`);
+    } else {
+      // Re-run / resume recovery: reset any incomplete chunks to WAITING
+      await db
+        .update(chunks)
+        .set({ status: "WAITING", attempts: 0 })
+        .where(
+          and(
+            eq(chunks.projectId, id),
+            inArray(chunks.status, ["CANCELLED", "FAILED", "PROCESSING"])
+          )
+        );
+      log(`prepare.chunks_reconciled id=${id} existing=${existingChunks.length}`);
+    }
+
+    const chunkRows = await db.select().from(chunks).where(eq(chunks.projectId, id));
+
     const nowIso = new Date().toISOString();
     const patch: Record<string, unknown> = {
+      durationSec: actualDuration,
+      totalChunks: chunkRows.length,
       vadJson: JSON.stringify(vad),
       stage: "asr",
       progress: Math.max(8, project.progress),

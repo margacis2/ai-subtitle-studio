@@ -79,6 +79,7 @@ const toneColor: Record<Toast["tone"], string> = {
 const toneIcon = { ok: "check", err: "x", warn: "alert", info: "chevron-right" } as const;
 
 export default function Page() {
+  const [mounted, setMounted] = useState(false);
   const [view, setViewInternal] = useState<View>("dashboard");
   const [navHistory, setNavHistory] = useState<View[]>(["dashboard"]);
   const [navIndex, setNavIndex] = useState<number>(0);
@@ -124,7 +125,9 @@ export default function Page() {
     }
   }, [navIndex, navHistory]);
 
-  /* Hydrate localStorage values on client */
+  useEffect(() => {
+    setMounted(true);
+  }, []);
   useEffect(() => {
     const s = load("ass:settings", DEFAULT_SETTINGS);
     const p = load<Prefs>("ass:prefs", { theme: "dark", fs: "md", contrast: false });
@@ -478,7 +481,7 @@ export default function Page() {
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-1">
               <button
-                disabled={navIndex <= 0}
+                disabled={!mounted || navIndex <= 0}
                 onClick={navigateBack}
                 title="Go back"
                 className="p-1.5 rounded text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
@@ -486,7 +489,7 @@ export default function Page() {
                 <Icon name="arrow-left" size={15} />
               </button>
               <button
-                disabled={navIndex >= navHistory.length - 1}
+                disabled={!mounted || navIndex >= navHistory.length - 1}
                 onClick={navigateForward}
                 title="Go forward"
                 className="p-1.5 rounded text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"

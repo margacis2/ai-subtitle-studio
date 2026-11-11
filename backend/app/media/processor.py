@@ -5,16 +5,38 @@ import shutil
 from typing import Optional, Dict, Any
 
 def get_ffmpeg_path() -> str:
+    env = os.environ.get("FFMPEG_PATH")
+    if env and os.path.isfile(env):
+        return env
+    candidates = [
+        r"C:\ffmpeg\ffmpeg.exe",
+        r"C:\ffmpeg\bin\ffmpeg.exe",
+        os.path.join(os.getcwd(), "bin", "ffmpeg.exe"),
+    ]
+    for c in candidates:
+        if os.path.isfile(c):
+            return c
     path = shutil.which("ffmpeg")
-    if not path:
-        raise RuntimeError("FFmpeg executable not found on system PATH")
-    return path
+    if path:
+        return path
+    raise RuntimeError("FFmpeg executable not found on system PATH or standard locations")
 
 def get_ffprobe_path() -> str:
+    env = os.environ.get("FFPROBE_PATH")
+    if env and os.path.isfile(env):
+        return env
+    candidates = [
+        r"C:\ffmpeg\ffprobe.exe",
+        r"C:\ffmpeg\bin\ffprobe.exe",
+        os.path.join(os.getcwd(), "bin", "ffprobe.exe"),
+    ]
+    for c in candidates:
+        if os.path.isfile(c):
+            return c
     path = shutil.which("ffprobe")
-    if not path:
-        raise RuntimeError("FFprobe executable not found on system PATH")
-    return path
+    if path:
+        return path
+    raise RuntimeError("FFprobe executable not found on system PATH or standard locations")
 
 def probe_media_info(file_path: str) -> Dict[str, Any]:
     """Extract media duration, streams, audio tracks using ffprobe."""
@@ -74,6 +96,7 @@ def extract_optimized_audio(
     ffmpeg = get_ffmpeg_path()
     orig_size = os.path.getsize(media_path)
     wav_path = output_base_path + ".wav"
+    os.makedirs(os.path.dirname(os.path.abspath(wav_path)), exist_ok=True)
 
     # Step 1: Extract 16 kHz mono PCM WAV, stripping corrupted container metadata (-map_metadata -1)
     cmd_wav = [
@@ -89,9 +112,17 @@ def extract_optimized_audio(
         "-f", "wav",
         wav_path
     ]
-    res = subprocess.run(cmd_wav, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    if res.returncode != 0 or not os.path.exists(wav_path):
-        raise RuntimeError(f"FFmpeg WAV extraction failed: {res.stderr.decode('utf-8', errors='ignore')}")
+    try:
+        res = subprocess.run(cmd_wav, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=300)
+    except subprocess.TimeoutExpired:
+        raise RuntimeError(f"FFmpeg WAV extraction timed out after 300s on: {media_path}")
+
+    if res.returncode != 0 or not os.path.exists(wav_path) or os.path.getsize(wav_path) < 100:
+        raw_err = res.stderr.decode('utf-8', errors='ignore')
+        # Extract meaningful trailing lines from FFmpeg output rather than repeating banner
+        err_lines = [l.strip() for l in raw_err.splitlines() if l.strip() and not l.startswith("ffmpeg version") and not l.startswith("configuration:")]
+        clean_err = " | ".join(err_lines[-4:]) if err_lines else "Empty or failed output"
+        raise RuntimeError(f"FFmpeg WAV extraction failed (code {res.returncode}): {clean_err}")
 
     wav_size = os.path.getsize(wav_path)
     if wav_size <= max_bytes:

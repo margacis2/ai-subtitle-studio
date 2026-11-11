@@ -1,6 +1,6 @@
 import os
 import threading
-from typing import List, Dict, Tuple, Optional
+from typing import List, Dict, Tuple, Optional, Any
 import torch
 
 _opus_cache: Dict[str, Tuple[Any, Any]] = {}
