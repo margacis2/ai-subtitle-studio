@@ -118,6 +118,26 @@ def extract_optimized_audio(
         raise RuntimeError(f"FFmpeg WAV extraction timed out after 300s on: {media_path}")
 
     if res.returncode != 0 or not os.path.exists(wav_path) or os.path.getsize(wav_path) < 100:
+        cmd_fallback = [
+            ffmpeg, "-y", "-nostdin",
+            "-err_detect", "ignore_err",
+            "-i", media_path,
+            "-vn",
+            "-af", "aresample=async=1000",
+            "-ac", "1",
+            "-ar", "16000",
+            "-acodec", "pcm_s16le",
+            "-f", "wav",
+            wav_path
+        ]
+        try:
+            res_fb = subprocess.run(cmd_fallback, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=300)
+            if res_fb.returncode == 0 and os.path.exists(wav_path) and os.path.getsize(wav_path) >= 100:
+                res = res_fb
+        except Exception:
+            pass
+
+    if (res.returncode != 0 and not (os.path.exists(wav_path) and os.path.getsize(wav_path) > 1024)) or not os.path.exists(wav_path) or os.path.getsize(wav_path) < 100:
         raw_err = res.stderr.decode('utf-8', errors='ignore')
         # Extract meaningful trailing lines from FFmpeg output rather than repeating banner
         err_lines = [l.strip() for l in raw_err.splitlines() if l.strip() and not l.startswith("ffmpeg version") and not l.startswith("configuration:")]

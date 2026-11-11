@@ -158,9 +158,10 @@ export async function POST(req: Request, { params }: Params) {
     // Filter segments belonging to this chunk window
     const chunkStartMs = Math.floor(chunk.startSec * 1000);
     const chunkEndMs = Math.ceil(chunk.endSec * 1000);
+    const isFinalChunk = chunk.endSec >= (project.durationSec - 5) || (project.totalChunks <= 1);
 
     const segments = rawSegments.filter(
-      (s: any) => s.startMs >= chunkStartMs - 1200 && s.startMs < chunkEndMs
+      (s: any) => s.startMs >= chunkStartMs - 1200 && (isFinalChunk || s.startMs < chunkEndMs)
     );
 
     const maxSeq = await db

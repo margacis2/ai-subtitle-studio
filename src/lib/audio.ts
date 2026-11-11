@@ -168,7 +168,28 @@ export async function extractWav(mediaPath: string, wavPath: string, timeoutMs =
     wavPath,
   ];
 
-  const result = await runCommand(getFfmpegPath(), args, timeoutMs);
+  let result = await runCommand(getFfmpegPath(), args, timeoutMs);
+
+  // If initial run failed, try resilient fallback extraction
+  if (!result.ok) {
+    const fallbackArgs = [
+      "-y",
+      "-nostdin",
+      "-err_detect", "ignore_err",
+      "-i", mediaPath,
+      "-vn",
+      "-af", "aresample=async=1000",
+      "-ac", "1",
+      "-ar", "16000",
+      "-acodec", "pcm_s16le",
+      "-f", "wav",
+      wavPath,
+    ];
+    const fallbackRes = await runCommand(getFfmpegPath(), fallbackArgs, timeoutMs);
+    if (fallbackRes.ok && fs.existsSync(wavPath) && fs.statSync(wavPath).size > 1024) {
+      result = fallbackRes;
+    }
+  }
 
   // Verification: check if valid WAV was created with non-zero audio content
   if (fs.existsSync(wavPath) && fs.statSync(wavPath).size > 1024) {
@@ -176,6 +197,11 @@ export async function extractWav(mediaPath: string, wavPath: string, timeoutMs =
       // Validate that ffprobe recognizes the output wav
       const wavProbe = probeMedia(wavPath);
       if (wavProbe.hasAudio && wavProbe.durationSec > 0) {
+        if (probe.durationSec > 10 && wavProbe.durationSec < probe.durationSec * 0.75 && !result.ok) {
+          console.warn(
+            `[WARN] Media audio stream truncated: container declared ${probe.durationSec.toFixed(1)}s, but decoded WAV is ${wavProbe.durationSec.toFixed(1)}s due to file corruption/codec abort.`
+          );
+        }
         return wavPath;
       }
     } catch {
@@ -207,6 +233,8 @@ export interface AudioOptimizationResult {
   channels: number;
   codec: string;
   compressionRatio?: number;
+  durationSec?: number;
+  warning?: string;
 }
 
 /**
@@ -228,6 +256,14 @@ export async function extractOptimizedAudio(
   await extractWav(mediaPath, wavPath, timeoutMs);
 
   const wavStat = fs.statSync(wavPath);
+  let wavDuration = 0;
+  try {
+    const wp = probeMedia(wavPath);
+    wavDuration = wp.durationSec;
+  } catch {
+    /* non-fatal */
+  }
+
   const sizeDelta = Math.abs(origStat.size - wavStat.size);
   const changePercent = Math.round((sizeDelta / Math.max(1, origStat.size)) * 100);
   const changeType =
@@ -245,6 +281,7 @@ export async function extractOptimizedAudio(
       channels: 1,
       codec: "pcm_s16le",
       compressionRatio: changeType === "reduced" ? changePercent : -changePercent,
+      durationSec: wavDuration,
     };
   }
 

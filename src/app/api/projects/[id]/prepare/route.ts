@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import fs from "node:fs";
 import path from "node:path";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, ne } from "drizzle-orm";
 import { db } from "@/db";
 import { projects, chunks } from "@/db/schema";
 import { buildChunkPlan } from "@/lib/time";
@@ -132,24 +132,46 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
       note = "VAD disabled by user settings.";
     }
 
-    const actualDuration = probe.durationSec > 0 ? probe.durationSec : project.durationSec || 60;
-    const existingChunks = await db.select().from(chunks).where(eq(chunks.projectId, id));
+    const wavDuration = audioOptResult?.durationSec && audioOptResult.durationSec > 0
+      ? audioOptResult.durationSec
+      : 0;
 
-    if (existingChunks.length === 0) {
-      const chunkSizeSec = Number(project.chunkSizeSec) || 600;
-      const overlapSec = Math.max(0, Math.min(Number(project.overlapSec) || 3, 30));
-      const plan = buildChunkPlan(actualDuration, chunkSizeSec, overlapSec);
-      await db.insert(chunks).values(
-        plan.map((p) => ({
-          id: newId(),
-          projectId: id,
-          index: p.index,
-          startSec: p.startSec,
-          endSec: p.endSec,
-          status: "WAITING" as const,
-        }))
-      );
-      log(`prepare.chunks_created id=${id} count=${plan.length}`);
+    let actualDuration = probe.durationSec > 0 ? probe.durationSec : project.durationSec || 60;
+    if (wavDuration > 0) {
+      if (probe.durationSec > 10 && wavDuration < probe.durationSec * 0.75) {
+        const containerDurStr = `${Math.floor(probe.durationSec / 60)}m ${Math.round(probe.durationSec % 60)}s`;
+        const audioDurStr = `${Math.floor(wavDuration / 60)}m ${Math.round(wavDuration % 60)}s`;
+        note = `⚠️ Warning: Media container header declared ${containerDurStr}, but audio stream ended or is corrupted at ${audioDurStr}. Transcribing available ${audioDurStr}.`;
+        actualDuration = wavDuration;
+      } else if (actualDuration <= 0 || Math.abs(actualDuration - wavDuration) > 1) {
+        actualDuration = wavDuration;
+      }
+    }
+
+    const existingChunks = await db.select().from(chunks).where(eq(chunks.projectId, id));
+    const maxExistingEnd = existingChunks.reduce((m, c) => Math.max(m, c.endSec), 0);
+    const planMismatch = existingChunks.length === 0 || Math.abs(maxExistingEnd - actualDuration) > 5;
+
+    if (planMismatch) {
+      await db.delete(chunks).where(and(eq(chunks.projectId, id), ne(chunks.status, "COMPLETED")));
+      const remainingChunks = await db.select().from(chunks).where(eq(chunks.projectId, id));
+
+      if (remainingChunks.length === 0) {
+        const chunkSizeSec = Number(project.chunkSizeSec) || 600;
+        const overlapSec = Math.max(0, Math.min(Number(project.overlapSec) || 3, 30));
+        const plan = buildChunkPlan(actualDuration, chunkSizeSec, overlapSec);
+        await db.insert(chunks).values(
+          plan.map((p) => ({
+            id: newId(),
+            projectId: id,
+            index: p.index,
+            startSec: p.startSec,
+            endSec: p.endSec,
+            status: "WAITING" as const,
+          }))
+        );
+        log(`prepare.chunks_rebuilt id=${id} count=${plan.length} duration=${actualDuration}s`);
+      }
     } else {
       // Re-run / resume recovery: reset any incomplete chunks to WAITING
       await db
@@ -171,6 +193,7 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
       durationSec: actualDuration,
       totalChunks: chunkRows.length,
       vadJson: JSON.stringify(vad),
+      engineNote: note || project.engineNote || null,
       stage: "asr",
       progress: Math.max(8, project.progress),
       updatedAt: nowIso,

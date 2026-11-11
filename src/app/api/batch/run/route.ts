@@ -63,8 +63,8 @@ export async function POST() {
         // Format into SubLine array
         const subLines = segments.map((s: any, idx: number) => ({
           id: idx + 1,
-          startMs: Math.round((s.start || 0) * 1000),
-          endMs: Math.round((s.end || 0) * 1000),
+          startMs: typeof s.startMs === "number" ? s.startMs : Math.round((s.start || 0) * 1000),
+          endMs: typeof s.endMs === "number" ? s.endMs : Math.round((s.end || 0) * 1000),
           original: s.text || s.original || "",
           translation: "",
           speaker: s.speaker || null,
