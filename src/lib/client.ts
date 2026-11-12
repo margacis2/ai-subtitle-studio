@@ -26,7 +26,13 @@ async function parse<T>(res: Response): Promise<T> {
   } else {
     const raw = await res.text().catch(() => "");
     if (raw && raw.trim()) {
-      body = { error: raw.trim() };
+      if (raw.includes("<html") || raw.includes("<!DOCTYPE") || ct.includes("text/html")) {
+        const titleMatch = raw.match(/<title>(.*?)<\/title>/i);
+        const title = titleMatch ? titleMatch[1].replace(/<[^>]+>/g, "").trim() : "";
+        body = { error: title || `Server returned ${res.status} (${res.statusText || "Error"})` };
+      } else {
+        body = { error: raw.trim().slice(0, 300) };
+      }
     }
   }
 

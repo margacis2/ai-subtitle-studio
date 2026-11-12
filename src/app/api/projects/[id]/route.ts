@@ -9,14 +9,22 @@ import { log, projectUploadDir, projectWorkDir } from "@/lib/server";
 export const runtime = "nodejs";
 
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params;
-  const [project] = await db.select().from(projects).where(eq(projects.id, id));
-  if (!project) return NextResponse.json({ error: "Project not found" }, { status: 404 });
+  try {
+    const { id } = await params;
+    const [project] = await db.select().from(projects).where(eq(projects.id, id));
+    if (!project) return NextResponse.json({ error: "Project not found", code: "NOT_FOUND" }, { status: 404 });
 
-  const chunkRows = await db.select().from(chunks).where(eq(chunks.projectId, id)).orderBy(asc(chunks.index));
-  const subRows = await db.select().from(subtitles).where(eq(subtitles.projectId, id)).orderBy(asc(subtitles.seq));
+    const chunkRows = await db.select().from(chunks).where(eq(chunks.projectId, id)).orderBy(asc(chunks.index));
+    const subRows = await db.select().from(subtitles).where(eq(subtitles.projectId, id)).orderBy(asc(subtitles.seq));
 
-  return NextResponse.json({ project: toProject(project), chunks: chunkRows.map(toChunk), subtitles: subRows.map(toSub) });
+    return NextResponse.json({ project: toProject(project), chunks: chunkRows.map(toChunk), subtitles: subRows.map(toSub) });
+  } catch (err: any) {
+    log(`project.get_error id=${(await params).id} err="${err.message}"\n${err.stack || ""}`);
+    return NextResponse.json(
+      { error: err.message || "Failed to load project", code: "GET_PROJECT_FAILED", details: err.stack },
+      { status: 500 }
+    );
+  }
 }
 
 const PATCHABLE = [
