@@ -129,6 +129,13 @@ function initDatabase() {
     );
   `);
 
+  // Safe schema migrations for existing databases
+  try { sqlite.exec("ALTER TABLE projects ADD COLUMN asr_time_sec REAL;"); } catch {}
+  try { sqlite.exec("ALTER TABLE projects ADD COLUMN translation_time_sec REAL;"); } catch {}
+  try { sqlite.exec("ALTER TABLE projects ADD COLUMN translation_model TEXT DEFAULT 'nllb';"); } catch {}
+  try { sqlite.exec("ALTER TABLE projects ADD COLUMN pause_before_translate INTEGER DEFAULT 1;"); } catch {}
+  try { sqlite.exec("ALTER TABLE projects ADD COLUMN unload_asr_before_translate INTEGER DEFAULT 1;"); } catch {}
+
   return drizzle(sqlite, { schema });
 }
 

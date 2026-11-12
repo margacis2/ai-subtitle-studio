@@ -29,7 +29,8 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 
 const PATCHABLE = [
   "status", "stage", "progress", "qualityScore", "processingTimeSec",
-  "engineNote", "vadJson", "startedAt", "workers",
+  "asrTimeSec", "translationTimeSec", "asrModel", "targetLang", "sourceLang",
+  "engineNote", "vadJson", "startedAt", "workers", "device", "computeType",
 ] as const;
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {

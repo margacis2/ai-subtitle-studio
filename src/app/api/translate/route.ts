@@ -6,7 +6,7 @@ export const runtime = "nodejs";
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { texts, source_lang = "ja", target_lang = "en" } = body;
+    const { texts, source_lang = "ja", target_lang = "en", engine = "nllb" } = body;
 
     if (!Array.isArray(texts) || texts.length === 0) {
       return NextResponse.json({ error: "texts array required" }, { status: 400 });
@@ -26,6 +26,7 @@ export async function POST(req: Request) {
         texts,
         source_lang,
         target_lang,
+        engine,
       }),
     });
 

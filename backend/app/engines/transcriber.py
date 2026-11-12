@@ -44,7 +44,16 @@ def get_whisper_engine(
     Supports CUDA with float16 / int8_float16 / int8, with graceful CPU int8 fallback.
     """
     global _model_instance, _current_model_key
-    model_key = f"{model_id}:{preferred_device}:{compute_type}"
+
+    clean_id = (model_id or "small").strip()
+    if clean_id in ("turbo", "large-v3-turbo"):
+        resolved_id = "turbo"
+    elif clean_id in ("large", "large-v3"):
+        resolved_id = "large-v3"
+    else:
+        resolved_id = clean_id
+
+    model_key = f"{resolved_id}:{preferred_device}:{compute_type}"
 
     with _engine_lock:
         if _model_instance is not None and _current_model_key == model_key:
@@ -61,6 +70,17 @@ def get_whisper_engine(
                     torch.cuda.empty_cache()
             except Exception:
                 pass
+
+        # Check for next-gen models requirement
+        if resolved_id in ("canary", "parakeet", "qwen-audio", "moonshine", "phonon-2"):
+            from backend.app.models.manager import find_model_path, AVAILABLE_WHISPER_MODELS
+            path = find_model_path(resolved_id)
+            meta = AVAILABLE_WHISPER_MODELS.get(resolved_id, {})
+            if not path:
+                raise ValueError(
+                    f"Model '{meta.get('name', resolved_id)}' weights are not yet downloaded on this machine. "
+                    f"Please visit the Model Manager tab to download {meta.get('name', resolved_id)} ({meta.get('size_mb', 0)} MB)."
+                )
 
         from faster_whisper import WhisperModel
         cache_dir = get_model_cache_dir()
@@ -85,16 +105,16 @@ def get_whisper_engine(
 
             for comp in computes:
                 try:
-                    print(f"[*] Initializing Faster-Whisper '{model_id}' on CUDA ({comp})...")
+                    print(f"[*] Initializing Faster-Whisper '{resolved_id}' on CUDA ({comp})...")
                     loaded = WhisperModel(
-                        model_id,
+                        resolved_id,
                         device="cuda",
                         compute_type=comp,
                         download_root=cache_dir
                     )
                     used_device = "cuda"
                     used_compute = comp
-                    print(f"[✓] Faster-Whisper '{model_id}' loaded on CUDA ({comp})")
+                    print(f"[✓] Faster-Whisper '{resolved_id}' loaded on CUDA ({comp})")
                     break
                 except Exception as exc:
                     print(f"[WARN] CUDA {comp} failed: {exc}")
@@ -102,9 +122,9 @@ def get_whisper_engine(
         if loaded is None:
             threads = workers if workers > 0 else max(2, (os.cpu_count() or 4) // 2)
             comp = compute_type if compute_type in ("int8", "float32") else "int8"
-            print(f"[*] Initializing Faster-Whisper '{model_id}' on CPU ({comp}, {threads} threads)...")
+            print(f"[*] Initializing Faster-Whisper '{resolved_id}' on CPU ({comp}, {threads} threads)...")
             loaded = WhisperModel(
-                model_id,
+                resolved_id,
                 device="cpu",
                 compute_type=comp,
                 cpu_threads=threads,
@@ -112,7 +132,7 @@ def get_whisper_engine(
             )
             used_device = "cpu"
             used_compute = comp
-            print(f"[✓] Faster-Whisper '{model_id}' loaded on CPU ({comp})")
+            print(f"[✓] Faster-Whisper '{resolved_id}' loaded on CPU ({comp})")
 
         _model_instance = loaded
         _current_model_key = model_key

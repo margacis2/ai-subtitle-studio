@@ -1,4 +1,4 @@
-import { ASR_MODELS, HardwareInfo, modelById } from "./types";
+import { ASR_MODELS, HardwareInfo, HardwareCompatibility, modelById } from "./types";
 
 export interface Recommendation {
   modelId: string;
@@ -38,8 +38,8 @@ export function recommend(
   let reason: string;
 
   if (mode === "fast") {
-    const fast = ASR_MODELS.filter((m) => m.id === "sensevoice" || m.id === "small");
-    model = fast.find((m) => (cuda ? fitsOnGpu(m) : true)) ?? ASR_MODELS[0];
+    const fast = ASR_MODELS.filter((m) => m.id === "sensevoice" || m.id === "tiny" || m.id === "small");
+    model = fast.find((m) => (cuda ? fitsOnGpu(m) : true)) ?? ASR_MODELS[2];
   } else if (mode === "high") {
     model = (cuda ? candidates.find(fitsOnGpu) : null) ?? null;
   } else {
@@ -47,7 +47,7 @@ export function recommend(
     model = (cuda ? candidates.find(fitsOnGpu) : null) ?? null;
   }
   if (!model) {
-    model = cuda ? (candidates.find((m) => m.vramGb <= 2) ?? ASR_MODELS[0]) : ASR_MODELS[0];
+    model = cuda ? (candidates.find((m) => m.vramGb <= 2) ?? ASR_MODELS[2]) : ASR_MODELS[2];
   }
 
   if (cuda && fitsOnGpu(model)) {
@@ -103,18 +103,117 @@ export function vramWarning(
   hw: HardwareInfo | null,
 ): { warn: string | null; suggested: string | null } {
   if (modelId === "auto" || !hw) return { warn: null, suggested: null };
-  const model = modelById(modelId);
-  const vram = hw.vramGb || 0;
-  const hasCuda = !!hw.cudaAvailable && vram > 0;
-  if (!hasCuda) return { warn: null, suggested: null };
-  if (model.vramGb * 1.15 <= vram) return { warn: null, suggested: null };
-  const fits = [...ASR_MODELS]
-    .filter((m) => m.vramGb * 1.15 <= vram)
-    .sort((a, b) => b.vramGb - a.vramGb)[0];
+  const compat = checkHardwareCompatibility(modelId, hw);
+  if (compat.supported && compat.tier !== "warning") return { warn: null, suggested: null };
   return {
-    warn:
-      `This model may need ~${model.vramGb.toFixed(1)} GB VRAM but only ${vram.toFixed(0)} GB is available. ` +
-      (fits ? `Suggested: ${fits.name}.` : "Suggested: CPU inference."),
-    suggested: fits?.name ?? null,
+    warn: compat.warningDetail ?? null,
+    suggested: compat.suggestedModelId ? modelById(compat.suggestedModelId).name : null,
   };
 }
+
+export function checkHardwareCompatibility(
+  modelId: string,
+  hw: HardwareInfo | null,
+): HardwareCompatibility {
+  const model = modelById(modelId);
+  const detectedGpu = hw?.gpuName || null;
+  const detectedVram = hw?.vramGb || 0;
+  const detectedRam = hw?.ramGb || 8;
+  const cuda = !!hw?.cudaAvailable && detectedVram > 0;
+  const reqVram = model.vramGb;
+  const reqRam = model.ramGb;
+  const shortfall = Math.max(0, Math.round((reqVram - detectedVram) * 10) / 10);
+
+  if (modelId === "auto") {
+    return {
+      supported: true,
+      tier: "optimal",
+      modelName: "Auto / Recommended",
+      detectedGpu,
+      detectedVramGb: detectedVram,
+      requiredVramGb: 1.6,
+      shortfallGb: 0,
+      detectedRamGb: detectedRam,
+      requiredRamGb: 3.0,
+      cudaAvailable: cuda,
+    };
+  }
+
+  // Find best alternative that fits with 5% headroom
+  const fittingModel = [...ASR_MODELS]
+    .filter((m) => cuda ? m.vramGb * 1.05 <= detectedVram : m.ramGb <= detectedRam)
+    .sort((a, b) => b.vramGb - a.vramGb)[0] || ASR_MODELS[2];
+
+  if (!cuda) {
+    if (detectedRam < reqRam) {
+      return {
+        supported: false,
+        tier: "warning",
+        modelName: model.name,
+        detectedGpu: "CPU Only (No CUDA GPU)",
+        detectedVramGb: 0,
+        requiredVramGb: reqVram,
+        shortfallGb: reqVram,
+        detectedRamGb: detectedRam,
+        requiredRamGb: reqRam,
+        cudaAvailable: false,
+        warningTitle: `Low System RAM for CPU Inference`,
+        warningDetail: `Model ${model.name} recommends ~${reqRam} GB RAM for CPU execution, but your system reports ${detectedRam.toFixed(1)} GB. Processing may experience high swapping or system lag.`,
+        recommendation: `Recommended: Use Faster-Whisper Small or Tiny for smooth CPU performance.`,
+        suggestedModelId: "small",
+      };
+    }
+    return {
+      supported: true,
+      tier: "compatible",
+      modelName: model.name,
+      detectedGpu: "CPU Only",
+      detectedVramGb: 0,
+      requiredVramGb: reqVram,
+      shortfallGb: 0,
+      detectedRamGb: detectedRam,
+      requiredRamGb: reqRam,
+      cudaAvailable: false,
+      recommendation: `Running on CPU with ${hw?.cpuCores || 4} threads. Int8 quantization recommended.`,
+      suggestedModelId: "small",
+    };
+  }
+
+  if (shortfall === 0) {
+    const isOptimal = reqVram * 1.15 <= detectedVram;
+    return {
+      supported: true,
+      tier: isOptimal ? "optimal" : "compatible",
+      modelName: model.name,
+      detectedGpu,
+      detectedVramGb: detectedVram,
+      requiredVramGb: reqVram,
+      shortfallGb: 0,
+      detectedRamGb: detectedRam,
+      requiredRamGb: reqRam,
+      cudaAvailable: true,
+      recommendation: isOptimal
+        ? `Fully supported! Model fits within ${detectedVram.toFixed(1)} GB VRAM with safety margin.`
+        : `Model fits in VRAM (${reqVram.toFixed(1)} GB of ${detectedVram.toFixed(1)} GB). Monitor VRAM during long chunks.`,
+    };
+  }
+
+  const isSevere = shortfall >= 3.0 || reqVram > detectedVram * 1.8;
+  return {
+    supported: false,
+    tier: isSevere ? "unsupported" : "warning",
+    modelName: model.name,
+    detectedGpu,
+    detectedVramGb: detectedVram,
+    requiredVramGb: reqVram,
+    shortfallGb: shortfall,
+    detectedRamGb: detectedRam,
+    requiredRamGb: reqRam,
+    cudaAvailable: true,
+    warningTitle: `VRAM Shortfall: ${shortfall.toFixed(1)} GB Shortage Detected`,
+    warningDetail: `The selected model (${model.name}) requires ~${reqVram.toFixed(1)} GB VRAM, but your GPU (${detectedGpu || "NVIDIA GPU"}) only has ${detectedVram.toFixed(1)} GB VRAM. Running on GPU will cause CUDA Out-of-Memory (OOM) errors or heavy memory paging into CPU RAM (~8x-12x slower).`,
+    recommendation: `Recommended: Switch to ${fittingModel.name} which fits perfectly into your ${detectedVram.toFixed(0)} GB VRAM.`,
+    suggestedModelId: fittingModel.id,
+  };
+}
+

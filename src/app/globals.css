@@ -33,28 +33,79 @@
 }
 
 [data-theme="light"] {
-  --bg: #f4f3ef;
-  --bg2: #fcfbf8;
-  --bg3: #edebe4;
-  --bg4: #e3e0d6;
-  --line: #d9d6cc;
-  --line2: #c3bfb2;
-  --text: #1d2129;
-  --muted: #5c6673;
-  --faint: #8a93a0;
-  --accent: #b26a00;
-  --accent-soft: rgba(178, 106, 0, 0.12);
-  --accent-ink: #fff8ec;
-  --teal: #0d8578;
-  --teal-soft: rgba(13, 133, 120, 0.12);
-  --ok: #178a4c;
-  --ok-soft: rgba(23, 138, 76, 0.12);
-  --warn: #c2570b;
-  --warn-soft: rgba(194, 87, 11, 0.12);
-  --err: #d33030;
-  --err-soft: rgba(211, 48, 48, 0.1);
-  --sel: rgba(178, 106, 0, 0.12);
+  --bg: #f8fafc;
+  --bg2: #ffffff;
+  --bg3: #f1f5f9;
+  --bg4: #e2e8f0;
+  --line: #e2e8f0;
+  --line2: #cbd5e1;
+  --text: #0f172a;
+  --muted: #475569;
+  --faint: #94a3b8;
+  --accent: #0284c7;
+  --accent-soft: rgba(2, 132, 199, 0.12);
+  --accent-ink: #ffffff;
+  --teal: #0d9488;
+  --teal-soft: rgba(13, 148, 136, 0.12);
+  --ok: #16a34a;
+  --ok-soft: rgba(22, 163, 74, 0.12);
+  --warn: #ea580c;
+  --warn-soft: rgba(234, 88, 12, 0.12);
+  --err: #dc2626;
+  --err-soft: rgba(220, 38, 38, 0.12);
+  --sel: rgba(2, 132, 199, 0.12);
   color-scheme: light;
+}
+
+[data-theme="light"] select,
+[data-theme="light"] input,
+[data-theme="light"] textarea {
+  background-color: var(--bg2) !important;
+  color: var(--text) !important;
+  border-color: var(--line) !important;
+}
+
+[data-theme="light"] .panel {
+  background: #ffffff !important;
+  border-color: #e2e8f0 !important;
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05);
+}
+
+[data-theme="light"] .panel-inset {
+  background: #f8fafc !important;
+  border-color: #e2e8f0 !important;
+}
+
+[data-theme="light"] .bg-neutral-900,
+[data-theme="light"] .bg-neutral-950,
+[data-theme="light"] .bg-neutral-900\/60,
+[data-theme="light"] .bg-neutral-900\/80 {
+  background-color: #f1f5f9 !important;
+}
+
+[data-theme="light"] .border-neutral-800,
+[data-theme="light"] .border-neutral-850,
+[data-theme="light"] .border-neutral-700 {
+  border-color: #e2e8f0 !important;
+}
+
+[data-theme="light"] .text-neutral-100,
+[data-theme="light"] .text-neutral-200,
+[data-theme="light"] .text-white {
+  color: #0f172a !important;
+}
+
+[data-theme="light"] .text-neutral-300,
+[data-theme="light"] .text-neutral-400 {
+  color: #475569 !important;
+}
+
+[data-theme="light"] .text-neutral-500 {
+  color: #64748b !important;
+}
+
+[data-theme="light"] .divide-neutral-850 > :not([hidden]) ~ :not([hidden]) {
+  border-color: #e2e8f0 !important;
 }
 
 [data-contrast="high"] {

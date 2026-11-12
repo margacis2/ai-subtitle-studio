@@ -9,15 +9,18 @@ import {
   SOURCE_LANGS,
   StudioSettings,
   TARGET_LANGS,
+  TRANSLATION_MODELS,
   langFlag,
   langName,
+  modelById,
 } from "@/lib/types";
 import { fmtBytes, fmtClock } from "@/lib/time";
-import { recommend, vramWarning } from "@/lib/modelManager";
+import { recommend, vramWarning, checkHardwareCompatibility } from "@/lib/modelManager";
 import { BUILTIN_PRESETS, Preset } from "@/lib/presets";
 import { sleep, simulatedWorkMs, transcribeChunk } from "@/lib/demo";
-import { probeDuration, uploadProject, deleteProject } from "@/lib/client";
+import { probeDuration, uploadProject, deleteProject, patchProject, unloadModels } from "@/lib/client";
 import { HardwarePanel } from "./HardwarePanel";
+import { HardwareWarningBanner } from "./HardwareWarningBanner";
 import { Badge, Btn, Field, Kbd, Progress, SectionTitle, Select, Toggle } from "./ui";
 import { Icon } from "./icons";
 
@@ -251,6 +254,16 @@ export default function Home({
                 ]}
               />
             </Field>
+            <Field label="Translation model" hint="Multilingual 200+ or language-pair">
+              <Select
+                value={settings.translationModel || "nllb"}
+                onChange={(v) => setSettings({ translationModel: v })}
+                options={TRANSLATION_MODELS.map((m) => ({
+                  value: m.id,
+                  label: `${m.name}${m.recommended ? " ★" : ""}`,
+                }))}
+              />
+            </Field>
             <Field label="Processing mode">
               <Select
                 value={settings.mode}
@@ -340,6 +353,18 @@ export default function Home({
                   <Toggle checked={settings.diarization} onChange={(v) => setSettings({ diarization: v })} label="Detect speakers" hint="labels Speaker 1 / Speaker 2 — rename later in the editor" />
                   <Toggle checked={settings.nonSpeechEvents} onChange={(v) => setSettings({ nonSpeechEvents: v })} label="Include non-speech events" hint="[music] [laughter] [applause] when confident" />
                   <Toggle checked={settings.autoPunctuate} onChange={(v) => setSettings({ autoPunctuate: v })} label="Auto punctuation" hint="capitalization + sentence ends, no meaning changes" />
+                  <Toggle
+                    checked={settings.pauseBeforeTranslate ?? true}
+                    onChange={(v) => setSettings({ pauseBeforeTranslate: v })}
+                    label="Interactive translation prompt"
+                    hint="Pause after transcription to select translation model and target language"
+                  />
+                  <Toggle
+                    checked={settings.unloadAsrBeforeTranslate ?? true}
+                    onChange={(v) => setSettings({ unloadAsrBeforeTranslate: v })}
+                    label="Unload ASR before translation"
+                    hint="Release Whisper from GPU memory to provide full VRAM for translation model"
+                  />
                   <Field label={`Max subtitle duration: ${settings.maxDurationSec}s`}>
                     <input type="range" min={4} max={12} step={1} value={settings.maxDurationSec} className="w-full"
                       onChange={(e) => setSettings({ maxDurationSec: Number(e.target.value) })} />
@@ -365,10 +390,13 @@ export default function Home({
             </span>
             <span className="text-[0.72rem]" style={{ color: "var(--faint)" }}>{rec.reason}</span>
           </div>
-          {vr.warn && (
-            <div className="mt-2 flex items-start gap-2 rounded-lg border px-3 py-2 text-[0.78rem]" style={{ borderColor: "color-mix(in srgb, var(--warn) 45%, transparent)", background: "var(--warn-soft)", color: "var(--warn)" }}>
-              <Icon name="alert" size={15} className="mt-0.5 shrink-0" />
-              <span>⚠ {vr.warn} Auto mode will use {vr.suggested ?? "CPU inference"} instead.</span>
+          {/* Real-time Hardware Compatibility Check */}
+          {settings.asrModel !== "auto" && hardware && (
+            <div className="mt-3">
+              <HardwareWarningBanner
+                compat={checkHardwareCompatibility(settings.asrModel, hardware)}
+                onSwitchModel={(id) => setSettings({ asrModel: id })}
+              />
             </div>
           )}
 
@@ -446,6 +474,45 @@ export default function Home({
                     </div>
                     <div className="mono mt-0.5 text-[0.68rem]" style={{ color: "var(--faint)" }}>
                       {fmtClock(p.durationSec)} · {fmtBytes(p.sizeBytes)} · {p.totalChunks} chunks × {fmtClock(p.chunkSizeSec)} · {langFlag(p.sourceLang === "auto" ? (p.completedChunks ? "" : "") : p.sourceLang) }{langName(p.sourceLang)} → {langName(p.targetLang)}
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2 mt-1.5 text-[0.72rem]">
+                      <span className="text-neutral-400">ASR Model:</span>
+                      {p.status !== "processing" ? (
+                        <select
+                          className="bg-neutral-900 border border-neutral-700 text-teal-300 rounded px-2 py-0.5 text-[0.72rem] font-mono focus:outline-none focus:border-teal-500"
+                          value={p.asrModel || "small"}
+                          onChange={async (e) => {
+                            const newModel = e.target.value;
+                            try {
+                              await patchProject(p.id, { asrModel: newModel });
+                              onToast("ok", `Updated ${p.name} ASR model to ${modelById(newModel).name}`);
+                              onRefresh();
+                            } catch (err: any) {
+                              onToast("err", `Failed updating model: ${err.message}`);
+                            }
+                          }}
+                          title="Change ASR transcription model for this project"
+                        >
+                          <option value="auto">Auto ({rec.modelName})</option>
+                          {ASR_MODELS.map((m) => (
+                            <option key={m.id} value={m.id}>
+                              {m.name} (~{m.vramGb} GB VRAM)
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <Badge tone="teal">{modelById(p.asrModel).name}</Badge>
+                      )}
+                      {p.asrTimeSec != null && (
+                        <span className="text-neutral-400">
+                          · ASR: <span className="font-mono text-neutral-200">{p.asrTimeSec.toFixed(1)}s</span>
+                        </span>
+                      )}
+                      {p.translationTimeSec != null && (
+                        <span className="text-neutral-400">
+                          · Translation: <span className="font-mono text-neutral-200">{p.translationTimeSec.toFixed(1)}s</span>
+                        </span>
+                      )}
                     </div>
                     {p.status === "processing" && (
                       <div className="mt-1.5 max-w-xs">

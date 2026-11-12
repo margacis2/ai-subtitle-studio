@@ -184,11 +184,28 @@ export interface TranslateBatchResult {
   translations: string[];
 }
 
-export async function translateTexts(texts: string[], sourceLang: string, targetLang: string = "en"): Promise<string[]> {
+export async function translateTexts(
+  texts: string[],
+  sourceLang: string,
+  targetLang: string = "en",
+  engine: string = "nllb"
+): Promise<string[]> {
   const res = await api<TranslateBatchResult>("/api/translate", {
     method: "POST",
-    body: JSON.stringify({ texts, source_lang: sourceLang, target_lang: targetLang }),
+    body: JSON.stringify({ texts, source_lang: sourceLang, target_lang: targetLang, engine }),
   });
   return res.translations;
+}
+
+export async function unloadModels(): Promise<{ ok: boolean; message: string }> {
+  try {
+    return await api<{ ok: boolean; message: string }>("/api/models", {
+      method: "POST",
+      body: JSON.stringify({ modelId: "all", action: "unload" }),
+    });
+  } catch (err: any) {
+    console.warn("Failed to unload models:", err);
+    return { ok: false, message: err.message || "Failed to unload models" };
+  }
 }
 

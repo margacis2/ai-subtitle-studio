@@ -7,12 +7,13 @@ from typing import Dict, Any, List, Optional
 from tqdm.auto import tqdm
 from backend.app.core.hardware import get_model_cache_dir
 
-# Curated catalog of official Faster-Whisper models from Hugging Face
+# Curated catalog of official Faster-Whisper and Next-Gen ASR models from Hugging Face
 AVAILABLE_WHISPER_MODELS: Dict[str, Dict[str, Any]] = {
     "tiny": {
         "id": "tiny",
         "name": "Faster-Whisper Tiny",
         "repo_id": "Systran/faster-whisper-tiny",
+        "family": "whisper",
         "size_mb": 75,
         "vram_gb": 0.5,
         "ram_gb": 1.0,
@@ -24,6 +25,7 @@ AVAILABLE_WHISPER_MODELS: Dict[str, Dict[str, Any]] = {
         "id": "base",
         "name": "Faster-Whisper Base",
         "repo_id": "Systran/faster-whisper-base",
+        "family": "whisper",
         "size_mb": 145,
         "vram_gb": 0.8,
         "ram_gb": 1.5,
@@ -35,6 +37,7 @@ AVAILABLE_WHISPER_MODELS: Dict[str, Dict[str, Any]] = {
         "id": "small",
         "name": "Faster-Whisper Small (Recommended)",
         "repo_id": "Systran/faster-whisper-small",
+        "family": "whisper",
         "size_mb": 460,
         "vram_gb": 1.6,
         "ram_gb": 3.0,
@@ -46,6 +49,7 @@ AVAILABLE_WHISPER_MODELS: Dict[str, Dict[str, Any]] = {
         "id": "medium",
         "name": "Faster-Whisper Medium",
         "repo_id": "Systran/faster-whisper-medium",
+        "family": "whisper",
         "size_mb": 1450,
         "vram_gb": 3.2,
         "ram_gb": 5.0,
@@ -53,16 +57,260 @@ AVAILABLE_WHISPER_MODELS: Dict[str, Dict[str, Any]] = {
         "accuracy": "Very High",
         "description": "Ideal for complex multilingual audio, Indian languages (Tamil, Hindi), and accents."
     },
+    "turbo": {
+        "id": "turbo",
+        "name": "Whisper Large-v3-Turbo",
+        "repo_id": "mobiuslabsgmbh/faster-whisper-large-v3-turbo",
+        "family": "whisper",
+        "size_mb": 1600,
+        "vram_gb": 3.5,
+        "ram_gb": 5.5,
+        "speed": "High Accuracy & Fast",
+        "accuracy": "State of the Art",
+        "description": "Fast 809M architecture combining top-tier accuracy with fast inference fitting in 4GB GPUs."
+    },
     "large-v3-turbo": {
         "id": "large-v3-turbo",
         "name": "Whisper Large-v3-Turbo",
         "repo_id": "mobiuslabsgmbh/faster-whisper-large-v3-turbo",
+        "family": "whisper",
         "size_mb": 1600,
-        "vram_gb": 4.5,
-        "ram_gb": 6.0,
+        "vram_gb": 3.5,
+        "ram_gb": 5.5,
         "speed": "High Accuracy & Fast",
         "accuracy": "State of the Art",
-        "description": "Latest release combining top-tier accuracy with fast inference speed."
+        "description": "Alias for Whisper Large-v3-Turbo."
+    },
+    "large-v3": {
+        "id": "large-v3",
+        "name": "Whisper Large-v3",
+        "repo_id": "Systran/faster-whisper-large-v3",
+        "family": "whisper",
+        "size_mb": 3000,
+        "vram_gb": 5.0,
+        "ram_gb": 6.5,
+        "speed": "Thorough (0.35x)",
+        "accuracy": "Maximum SOTA",
+        "description": "Full 1550M parameter SOTA model. Exceeds 4GB VRAM (runs via CPU or unified memory paging)."
+    },
+    "canary": {
+        "id": "canary",
+        "name": "NVIDIA Canary-1B",
+        "repo_id": "nvidia/canary-1b",
+        "family": "nvidia",
+        "size_mb": 3700,
+        "vram_gb": 8.0,
+        "ram_gb": 16.0,
+        "speed": "NeMo Neural (0.5x)",
+        "accuracy": "Exceptional (NeMo)",
+        "description": "NVIDIA NeMo FastConformer 1B with inverse text normalization & punctuation. Requires 8GB VRAM."
+    },
+    "parakeet": {
+        "id": "parakeet",
+        "name": "NVIDIA Parakeet-CTC 1.1B",
+        "repo_id": "nvidia/parakeet-ctc-1.1b",
+        "family": "nvidia",
+        "size_mb": 2400,
+        "vram_gb": 4.5,
+        "ram_gb": 8.0,
+        "speed": "High Speed CTC (1.4x)",
+        "accuracy": "Very High (98%+)",
+        "description": "NVIDIA NeMo FastConformer CTC architecture with low-latency streaming transcription."
+    },
+    "qwen-audio": {
+        "id": "qwen-audio",
+        "name": "Qwen 3 ASR / Qwen2-Audio 7B",
+        "repo_id": "Qwen/Qwen2-Audio-7B-Instruct",
+        "family": "qwen",
+        "size_mb": 14200,
+        "vram_gb": 14.0,
+        "ram_gb": 24.0,
+        "speed": "Multimodal LLM (0.25x)",
+        "accuracy": "Conversational SOTA",
+        "description": "Alibaba Qwen2-Audio 7B multimodal speech-language model. Requires 14GB VRAM in fp16."
+    },
+    "moonshine": {
+        "id": "moonshine",
+        "name": "Moonshine Base (Useful Sensors)",
+        "repo_id": "UsefulSensors/moonshine-base",
+        "family": "moonshine",
+        "size_mb": 250,
+        "vram_gb": 1.2,
+        "ram_gb": 2.5,
+        "speed": "Ultra-Fast (2.2x)",
+        "accuracy": "High (Edge)",
+        "description": "Edge-optimized low-latency speech-to-text neural network. Runs in ~1.2GB VRAM."
+    },
+    "phonon-2": {
+        "id": "phonon-2",
+        "name": "Phonon 2 (Speech Sync)",
+        "repo_id": "ai-subtitle-studio/phonon-2-asr",
+        "family": "phonon",
+        "size_mb": 450,
+        "vram_gb": 1.8,
+        "ram_gb": 3.0,
+        "speed": "Fast Sync (1.8x)",
+        "accuracy": "High Sync",
+        "description": "Phoneme-synchronous speech alignment and word boundary detection for tight subtitle sync."
+    },
+    "sensevoice": {
+        "id": "sensevoice",
+        "name": "SenseVoice Small (FunASR)",
+        "repo_id": "FunAudioLLM/SenseVoiceSmall",
+        "family": "sensevoice",
+        "size_mb": 500,
+        "vram_gb": 0.9,
+        "ram_gb": 2.0,
+        "speed": "Ultra Fast (2.8x)",
+        "accuracy": "Very Good",
+        "description": "FunAudioLLM multilingual speech recognition with audio event and emotion detection."
+    }
+}
+
+# Curated catalog of offline MarianMT & NLLB Neural Translation models
+AVAILABLE_TRANSLATION_MODELS: Dict[str, Dict[str, Any]] = {
+    "opus-mt-ja-en": {
+        "id": "opus-mt-ja-en",
+        "name": "OPUS-MT Japanese → English",
+        "repo_id": "Helsinki-NLP/opus-mt-ja-en",
+        "source_lang": "ja",
+        "target_lang": "en",
+        "size_mb": 312,
+        "vram_gb": 0.8,
+        "ram_gb": 1.5,
+        "speed": "Fast (16 lines/s)",
+        "accuracy": "High (MarianMT)",
+        "description": "Neural translation for Japanese anime, drama, and conversation into English."
+    },
+    "opus-mt-en-es": {
+        "id": "opus-mt-en-es",
+        "name": "OPUS-MT English → Spanish",
+        "repo_id": "Helsinki-NLP/opus-mt-en-es",
+        "source_lang": "en",
+        "target_lang": "es",
+        "size_mb": 312,
+        "vram_gb": 0.8,
+        "ram_gb": 1.5,
+        "speed": "Fast (18 lines/s)",
+        "accuracy": "High",
+        "description": "Neural translation from English to European and Latin American Spanish."
+    },
+    "opus-mt-es-en": {
+        "id": "opus-mt-es-en",
+        "name": "OPUS-MT Spanish → English",
+        "repo_id": "Helsinki-NLP/opus-mt-es-en",
+        "source_lang": "es",
+        "target_lang": "en",
+        "size_mb": 312,
+        "vram_gb": 0.8,
+        "ram_gb": 1.5,
+        "speed": "Fast (18 lines/s)",
+        "accuracy": "High",
+        "description": "Translates Spanish dialogue, documentaries, and news into natural English."
+    },
+    "opus-mt-en-fr": {
+        "id": "opus-mt-en-fr",
+        "name": "OPUS-MT English → French",
+        "repo_id": "Helsinki-NLP/opus-mt-en-fr",
+        "source_lang": "en",
+        "target_lang": "fr",
+        "size_mb": 300,
+        "vram_gb": 0.8,
+        "ram_gb": 1.5,
+        "speed": "Fast (18 lines/s)",
+        "accuracy": "High",
+        "description": "Accurate English to French translation model."
+    },
+    "opus-mt-fr-en": {
+        "id": "opus-mt-fr-en",
+        "name": "OPUS-MT French → English",
+        "repo_id": "Helsinki-NLP/opus-mt-fr-en",
+        "source_lang": "fr",
+        "target_lang": "en",
+        "size_mb": 300,
+        "vram_gb": 0.8,
+        "ram_gb": 1.5,
+        "speed": "Fast (18 lines/s)",
+        "accuracy": "High",
+        "description": "Translates French movies, interviews, and subtitles to fluent English."
+    },
+    "opus-mt-en-de": {
+        "id": "opus-mt-en-de",
+        "name": "OPUS-MT English → German",
+        "repo_id": "Helsinki-NLP/opus-mt-en-de",
+        "source_lang": "en",
+        "target_lang": "de",
+        "size_mb": 298,
+        "vram_gb": 0.8,
+        "ram_gb": 1.5,
+        "speed": "Fast (17 lines/s)",
+        "accuracy": "High",
+        "description": "English to German machine translation model."
+    },
+    "opus-mt-de-en": {
+        "id": "opus-mt-de-en",
+        "name": "OPUS-MT German → English",
+        "repo_id": "Helsinki-NLP/opus-mt-de-en",
+        "source_lang": "de",
+        "target_lang": "en",
+        "size_mb": 298,
+        "vram_gb": 0.8,
+        "ram_gb": 1.5,
+        "speed": "Fast (17 lines/s)",
+        "accuracy": "High",
+        "description": "Translates German speech and videos to English."
+    },
+    "opus-mt-zh-en": {
+        "id": "opus-mt-zh-en",
+        "name": "OPUS-MT Chinese → English",
+        "repo_id": "Helsinki-NLP/opus-mt-zh-en",
+        "source_lang": "zh",
+        "target_lang": "en",
+        "size_mb": 312,
+        "vram_gb": 0.8,
+        "ram_gb": 1.5,
+        "speed": "Fast (15 lines/s)",
+        "accuracy": "High",
+        "description": "Mandarin Chinese to English neural translation."
+    },
+    "opus-mt-hi-en": {
+        "id": "opus-mt-hi-en",
+        "name": "OPUS-MT Hindi → English",
+        "repo_id": "Helsinki-NLP/opus-mt-hi-en",
+        "source_lang": "hi",
+        "target_lang": "en",
+        "size_mb": 305,
+        "vram_gb": 0.8,
+        "ram_gb": 1.5,
+        "speed": "Fast (16 lines/s)",
+        "accuracy": "High",
+        "description": "Hindi Bollywood, podcasts, and speeches translated to English."
+    },
+    "opus-mt-dra-en": {
+        "id": "opus-mt-dra-en",
+        "name": "OPUS-MT Dravidian (Tamil/Telugu) → English",
+        "repo_id": "Helsinki-NLP/opus-mt-dra-en",
+        "source_lang": "ta",
+        "target_lang": "en",
+        "size_mb": 312,
+        "vram_gb": 0.8,
+        "ram_gb": 1.5,
+        "speed": "Fast (15 lines/s)",
+        "accuracy": "High",
+        "description": "Specialized MarianMT model for Tamil, Telugu, Malayalam, and Kannada to English."
+    },
+    "nllb-200-distilled-600M": {
+        "id": "nllb-200-distilled-600M",
+        "name": "Meta NLLB-200 (Universal 200 Languages)",
+        "repo_id": "facebook/nllb-200-distilled-600M",
+        "source_lang": "multilingual",
+        "target_lang": "multilingual",
+        "size_mb": 2400,
+        "vram_gb": 2.5,
+        "ram_gb": 4.0,
+        "speed": "Moderate (8 lines/s)",
+        "accuracy": "Universal SOTA",
+        "description": "Meta No Language Left Behind universal 200-language translation engine."
     }
 }
 
@@ -430,3 +678,224 @@ def test_whisper_model_load(model_id: str) -> Dict[str, Any]:
             "error": str(e),
             "load_time_ms": round((time.time() - t0) * 1000, 1)
         }
+
+def find_translation_model_path(model_id: str) -> Optional[str]:
+    """Finds directory on disk for a neural translation model."""
+    if model_id not in AVAILABLE_TRANSLATION_MODELS:
+        return None
+
+    meta = AVAILABLE_TRANSLATION_MODELS[model_id]
+    repo_clean = meta["repo_id"].replace("/", "--")
+
+    for cdir in get_cache_search_dirs():
+        candidate = os.path.join(cdir, f"models--{repo_clean}")
+        if os.path.isdir(candidate):
+            snap_dir = os.path.join(candidate, "snapshots")
+            if os.path.isdir(snap_dir) and os.listdir(snap_dir):
+                return candidate
+            if any(f.endswith((".bin", ".safetensors")) for _, _, files in os.walk(candidate) for f in files):
+                return candidate
+
+        direct = os.path.join(cdir, model_id)
+        if os.path.isdir(direct) and any(f.endswith((".bin", ".safetensors")) for _, _, files in os.walk(direct) for f in files):
+            return direct
+
+    return None
+
+def get_installed_translation_models() -> List[Dict[str, Any]]:
+    """Scan disk and return installation status of translation models."""
+    results = []
+
+    for model_id, meta in AVAILABLE_TRANSLATION_MODELS.items():
+        item = dict(meta)
+        found_path = find_translation_model_path(model_id)
+
+        installed = False
+        installed_bytes = 0
+
+        if found_path and os.path.isdir(found_path):
+            total_sz = 0
+            has_weights = False
+            for root, _, files in os.walk(found_path):
+                for f in files:
+                    fp = os.path.join(root, f)
+                    try:
+                        sz = os.path.getsize(fp)
+                        total_sz += sz
+                        if f.endswith((".bin", ".safetensors")):
+                            has_weights = True
+                    except OSError:
+                        pass
+            if total_sz > 5 * 1024 * 1024 and has_weights:
+                installed = True
+                installed_bytes = total_sz
+                item["path"] = found_path
+
+        item["installed"] = installed
+        item["installed_size_mb"] = round(installed_bytes / (1024 * 1024), 1) if installed else 0
+
+        with _download_lock:
+            dl_info = _active_downloads.get(model_id)
+            if dl_info:
+                item["downloading"] = True
+                item["progress"] = dl_info.get("progress", 0)
+                item["bytes_downloaded"] = dl_info.get("bytes_downloaded", 0)
+                item["total_bytes"] = dl_info.get("total_bytes", 0)
+                item["status"] = dl_info.get("status", "downloading")
+                item["speed_mbps"] = dl_info.get("speed_mbps", 0)
+            else:
+                item["downloading"] = False
+                item["progress"] = 100 if installed else 0
+                item["status"] = "installed" if installed else "available"
+
+        results.append(item)
+
+    return results
+
+def download_translation_model(model_id: str):
+    """Downloads translation model weights with live progress tracking."""
+    if model_id not in AVAILABLE_TRANSLATION_MODELS:
+        raise ValueError(f"Unknown translation model: {model_id}")
+
+    meta = AVAILABLE_TRANSLATION_MODELS[model_id]
+    repo_id = meta["repo_id"]
+    repo_clean = repo_id.replace("/", "--")
+    cache_dir = get_model_cache_dir()
+
+    with _download_lock:
+        active = _active_downloads.get(model_id)
+        if active and active.get("status") in ["starting", "downloading", "verifying"]:
+            return active
+        _active_downloads[model_id] = {
+            "model_id": model_id,
+            "status": "starting",
+            "progress": 1,
+            "bytes_downloaded": 0,
+            "total_bytes": meta["size_mb"] * 1024 * 1024,
+            "speed_mbps": 0.0,
+            "error": None
+        }
+
+    # Clean up lock files
+    for cdir in get_cache_search_dirs():
+        locks_dir = os.path.join(cdir, ".locks")
+        if os.path.isdir(locks_dir):
+            for lf in os.listdir(locks_dir):
+                if repo_clean in lf or model_id in lf:
+                    try:
+                        os.remove(os.path.join(locks_dir, lf))
+                    except Exception:
+                        pass
+
+    def _worker():
+        stop_monitor = threading.Event()
+
+        def _monitor():
+            expected_bytes = meta["size_mb"] * 1024 * 1024
+            prev_bytes = 0
+            prev_time = time.time()
+            while not stop_monitor.is_set():
+                time.sleep(0.4)
+                total_current = 0
+                for cdir in get_cache_search_dirs():
+                    cand = os.path.join(cdir, f"models--{repo_clean}")
+                    if os.path.isdir(cand):
+                        for root, _, files in os.walk(cand):
+                            for f in files:
+                                try:
+                                    total_current += os.path.getsize(os.path.join(root, f))
+                                except OSError:
+                                    pass
+                now = time.time()
+                dt = max(0.2, now - prev_time)
+                speed = round(((total_current - prev_bytes) / (1024 * 1024)) / dt, 2)
+                prev_bytes = total_current
+                prev_time = now
+
+                pct = min(96, max(1, int((total_current / max(1, expected_bytes)) * 100)))
+
+                with _download_lock:
+                    if model_id in _active_downloads and _active_downloads[model_id].get("status") == "downloading":
+                        _active_downloads[model_id]["bytes_downloaded"] = total_current
+                        _active_downloads[model_id]["progress"] = pct
+                        _active_downloads[model_id]["speed_mbps"] = max(0.0, speed)
+
+        monitor_thread = threading.Thread(target=_monitor, daemon=True)
+        try:
+            from huggingface_hub import snapshot_download
+
+            with _download_lock:
+                _active_downloads[model_id]["status"] = "downloading"
+                _active_downloads[model_id]["progress"] = 2
+
+            monitor_thread.start()
+
+            snapshot_download(
+                repo_id=repo_id,
+                cache_dir=cache_dir,
+            )
+
+            stop_monitor.set()
+            monitor_thread.join(timeout=1.0)
+
+            with _download_lock:
+                _active_downloads[model_id]["status"] = "completed"
+                _active_downloads[model_id]["progress"] = 100
+                _active_downloads[model_id]["bytes_downloaded"] = meta["size_mb"] * 1024 * 1024
+        except Exception as e:
+            stop_monitor.set()
+            with _download_lock:
+                _active_downloads[model_id]["status"] = "failed"
+                _active_downloads[model_id]["error"] = str(e)
+        finally:
+            time.sleep(3)
+            with _download_lock:
+                if _active_downloads.get(model_id, {}).get("status") in ["completed", "failed"]:
+                    _active_downloads.pop(model_id, None)
+
+    thread = threading.Thread(target=_worker, daemon=True)
+    thread.start()
+    return _active_downloads[model_id]
+
+def delete_translation_model(model_id: str) -> Dict[str, Any]:
+    """Safely removes translation model from disk."""
+    if model_id not in AVAILABLE_TRANSLATION_MODELS:
+        return {"ok": False, "error": f"Unknown translation model: {model_id}"}
+
+    with _download_lock:
+        if model_id in _active_downloads and _active_downloads[model_id].get("status") == "downloading":
+            return {"ok": False, "error": "Cannot delete model while download is in progress"}
+        _active_downloads.pop(model_id, None)
+
+    meta = AVAILABLE_TRANSLATION_MODELS[model_id]
+    repo_clean = meta["repo_id"].replace("/", "--")
+
+    deleted_dirs = []
+    failed_errors = []
+
+    for cdir in get_cache_search_dirs():
+        targets = [
+            os.path.join(cdir, f"models--{repo_clean}"),
+            os.path.join(cdir, model_id)
+        ]
+        for t in targets:
+            if os.path.isdir(t):
+                try:
+                    shutil.rmtree(t, onerror=_handle_rmtree_error)
+                    deleted_dirs.append(t)
+                except Exception as err:
+                    failed_errors.append(f"{t}: {str(err)}")
+
+    if failed_errors:
+        return {
+            "ok": False,
+            "error": "; ".join(failed_errors),
+            "deleted": deleted_dirs
+        }
+
+    return {
+        "ok": True,
+        "deleted_count": len(deleted_dirs),
+        "deleted_paths": deleted_dirs
+    }
+

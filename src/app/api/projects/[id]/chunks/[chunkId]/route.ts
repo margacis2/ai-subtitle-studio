@@ -77,12 +77,23 @@ export async function POST(req: Request, { params }: Params) {
       throw new Error(err);
     }
 
-    const cachePath = path.join(workDir, "transcription_cache.json");
+    const requestedModel = project.asrModel === "auto" ? "small" : project.asrModel || "small";
+    const cachePath = path.join(workDir, `transcription_cache_${requestedModel}.json`);
+    const legacyCachePath = path.join(workDir, "transcription_cache.json");
     let data: any = null;
 
     if (fs.existsSync(cachePath)) {
       try {
         data = JSON.parse(fs.readFileSync(cachePath, "utf-8"));
+      } catch {
+        data = null;
+      }
+    } else if (fs.existsSync(legacyCachePath)) {
+      try {
+        const legacy = JSON.parse(fs.readFileSync(legacyCachePath, "utf-8"));
+        if (legacy && legacy.model_id === requestedModel) {
+          data = legacy;
+        }
       } catch {
         data = null;
       }
@@ -105,7 +116,7 @@ export async function POST(req: Request, { params }: Params) {
       // 2. Prepare request payload
       const formData = new FormData();
       formData.append("source_lang", project.sourceLang || "auto");
-      formData.append("model_id", project.asrModel === "auto" ? "small" : project.asrModel || "small");
+      formData.append("model_id", requestedModel);
       formData.append("device", project.device || "auto");
       formData.append("compute_type", project.computeType || "auto");
       formData.append("workers", String(project.workers || 0));
@@ -145,6 +156,7 @@ export async function POST(req: Request, { params }: Params) {
       }
 
       data = await response.json();
+      data.model_id = requestedModel;
       try {
         fs.writeFileSync(cachePath, JSON.stringify(data), "utf-8");
       } catch {

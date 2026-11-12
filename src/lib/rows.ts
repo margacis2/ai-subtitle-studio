@@ -34,6 +34,8 @@ export function toProject(p: typeof schema.projects.$inferSelect): Project {
     completedChunks: p.completedChunks,
     qualityScore: p.qualityScore,
     processingTimeSec: p.processingTimeSec,
+    asrTimeSec: p.asrTimeSec ?? null,
+    translationTimeSec: p.translationTimeSec ?? null,
     vadJson: p.vadJson,
     engineNote: p.engineNote,
     startedAt: iso(p.startedAt),

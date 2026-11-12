@@ -35,10 +35,14 @@ from backend.app.models.manager import (
     download_whisper_model,
     delete_whisper_model,
     test_whisper_model_load,
-    AVAILABLE_WHISPER_MODELS
+    AVAILABLE_WHISPER_MODELS,
+    get_installed_translation_models,
+    download_translation_model,
+    delete_translation_model,
+    AVAILABLE_TRANSLATION_MODELS
 )
 from backend.app.engines.transcriber import transcribe_audio_file, release_whisper_engine
-from backend.app.translation.translator import translate_with_opus, translate_with_argos
+from backend.app.translation.translator import translate_with_opus, translate_with_nllb, translate_with_argos
 from backend.app.media.processor import probe_media_info, extract_optimized_audio
 
 LOCAL_TOKEN = os.environ.get("STUDIO_INTERNAL_TOKEN", "")
@@ -120,6 +124,26 @@ def remove_model(model_id: str):
     res = delete_whisper_model(model_id)
     return res
 
+@app.get("/models/translation")
+def list_translation_models():
+    return {
+        "cache_dir": get_model_cache_dir(),
+        "models": get_installed_translation_models()
+    }
+
+@app.post("/models/translation/{model_id}/download")
+def trigger_translation_download(model_id: str):
+    try:
+        res = download_translation_model(model_id)
+        return {"ok": True, "download": res}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.delete("/models/translation/{model_id}")
+def remove_translation_model(model_id: str):
+    res = delete_translation_model(model_id)
+    return res
+
 from backend.app.core.benchmark import benchmark_model
 
 class BenchmarkEndpointRequest(BaseModel):
@@ -146,19 +170,37 @@ def translate_endpoint(req: TranslateRequest):
     if not req.texts:
         return {"source_lang": req.source_lang, "target_lang": req.target_lang, "translations": []}
 
+    src = (req.source_lang or "auto").lower().split("-")[0]
+    tgt = (req.target_lang or "en").lower().split("-")[0]
+
+    # If target is original or matches source, return original texts instantly
+    if src == tgt or tgt in ("original", "none", ""):
+        return {
+            "source_lang": req.source_lang,
+            "target_lang": req.target_lang,
+            "translations": req.texts
+        }
+
     try:
         if req.engine == "argos":
-            translated = translate_with_argos(req.texts, req.source_lang, req.target_lang)
+            translated = translate_with_argos(req.texts, src, tgt)
+        elif req.engine == "nllb":
+            translated = translate_with_nllb(req.texts, src, tgt)
         else:
-            translated = translate_with_opus(req.texts, req.source_lang, req.target_lang)
+            translated = translate_with_opus(req.texts, src, tgt)
         return {
             "source_lang": req.source_lang,
             "target_lang": req.target_lang,
             "translations": translated
         }
     except Exception as e:
-        traceback.print_exc()
-        raise HTTPException(status_code=400, detail=str(e))
+        print(f"[WARN] Translation error: {e}. Preserving original text.")
+        return {
+            "source_lang": req.source_lang,
+            "target_lang": req.target_lang,
+            "translations": req.texts,
+            "warning": str(e)
+        }
 
 @app.post("/transcribe")
 async def transcribe_endpoint(
@@ -305,9 +347,24 @@ def probe_endpoint(file_path: str = Form(...)):
         raise HTTPException(status_code=400, detail=str(e))
 
 @app.post("/release-memory")
+@app.post("/models/unload")
 def free_memory():
+    import gc
+    from backend.app.engines.transcriber import release_whisper_engine
+    from backend.app.translation.translator import release_translation_models
     release_whisper_engine()
-    return {"ok": True, "message": "Model memory released"}
+    release_translation_models()
+    gc.collect()
+    try:
+        import torch
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            if hasattr(torch.cuda, "ipc_collect"):
+                torch.cuda.ipc_collect()
+    except Exception:
+        pass
+    print("[✓] All ASR and Translation models unloaded from VRAM/RAM.")
+    return {"ok": True, "message": "All ASR and Translation models unloaded from VRAM/RAM"}
 
 def start_server(port: int = 8001):
     import uvicorn
