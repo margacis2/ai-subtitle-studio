@@ -44,6 +44,7 @@ from backend.app.models.manager import (
 from backend.app.engines.transcriber import transcribe_audio_file, release_whisper_engine
 from backend.app.translation.translator import translate_with_opus, translate_with_nllb, translate_with_argos
 from backend.app.media.processor import probe_media_info, extract_optimized_audio
+from backend.app.remote import get_lan_ip, generate_qr_code_base64, tunnel_manager, device_manager
 
 LOCAL_TOKEN = os.environ.get("STUDIO_INTERNAL_TOKEN", "")
 
@@ -366,9 +367,126 @@ def free_memory():
     print("[✓] All ASR and Translation models unloaded from VRAM/RAM.")
     return {"ok": True, "message": "All ASR and Translation models unloaded from VRAM/RAM"}
 
+# --- REMOTE ACCESS & MULTI-DEVICE MANAGEMENT ENDPOINTS ---
+
+from fastapi import Request
+
+class HeartbeatRequest(BaseModel):
+    device_id: str
+    active_task: Optional[str] = "Idle"
+
+class PinVerifyRequest(BaseModel):
+    pin: str
+
+class PinConfigRequest(BaseModel):
+    required: bool
+    pin: Optional[str] = None
+
+@app.get("/remote/status")
+def get_remote_status(req: Request):
+    lan_ip = get_lan_ip()
+    port_fe = int(os.environ.get("PORT", "3000"))
+    port_be = int(os.environ.get("STUDIO_PORT", "8001"))
+    lan_url = f"http://{lan_ip}:{port_fe}"
+    
+    # Generate QR codes
+    qr_lan = generate_qr_code_base64(lan_url)
+    
+    tunnel_st = tunnel_manager.get_status()
+    qr_wan = None
+    if tunnel_st.get("url"):
+        qr_wan = generate_qr_code_base64(tunnel_st["url"])
+        
+    return {
+        "ok": True,
+        "lan_ip": lan_ip,
+        "lan_url": lan_url,
+        "backend_url": f"http://{lan_ip}:{port_be}",
+        "ports": {"frontend": port_fe, "backend": port_be},
+        "qr_lan": qr_lan,
+        "tunnel": {
+            **tunnel_st,
+            "qr_wan": qr_wan
+        },
+        "devices": device_manager.list_devices(),
+        "pin_required": device_manager.pin_required
+    }
+
+@app.get("/remote/qr")
+def get_qr_endpoint(data: str):
+    if not data:
+        raise HTTPException(status_code=400, detail="Missing data query parameter")
+    img_b64 = generate_qr_code_base64(data)
+    if not img_b64:
+        raise HTTPException(status_code=500, detail="Failed to generate QR code")
+    return {"ok": True, "qr": img_b64}
+
+@app.post("/remote/tunnel/start")
+def start_remote_tunnel(port: Optional[int] = None):
+    target = port or int(os.environ.get("PORT", "3000"))
+    st = tunnel_manager.start_tunnel(target_port=target)
+    if st.get("url"):
+        st["qr_wan"] = generate_qr_code_base64(st["url"])
+    return {"ok": True, "tunnel": st}
+
+@app.post("/remote/tunnel/stop")
+def stop_remote_tunnel():
+    st = tunnel_manager.stop_tunnel()
+    return {"ok": True, "tunnel": st}
+
+@app.post("/remote/heartbeat")
+def device_heartbeat(payload: HeartbeatRequest, request: Request):
+    client_ip = request.client.host if request.client else "127.0.0.1"
+    ua = request.headers.get("user-agent", "")
+    host = request.headers.get("host", "")
+    
+    dev = device_manager.register_activity(
+        device_id=payload.device_id,
+        client_ip=client_ip,
+        user_agent=ua,
+        host_header=host,
+        active_task=payload.active_task
+    )
+    if "error" in dev:
+        raise HTTPException(status_code=403, detail=dev["error"])
+    return {"ok": True, "device": dev, "pin_required": device_manager.pin_required}
+
+@app.get("/remote/devices")
+def get_devices_endpoint():
+    return {"ok": True, "devices": device_manager.list_devices()}
+
+@app.post("/remote/devices/{device_id}/block")
+def block_device_endpoint(device_id: str):
+    ok = device_manager.block_device(device_id)
+    return {"ok": ok, "devices": device_manager.list_devices()}
+
+@app.post("/remote/devices/{device_id}/unblock")
+def unblock_device_endpoint(device_id: str):
+    ok = device_manager.unblock_device(device_id)
+    return {"ok": ok, "devices": device_manager.list_devices()}
+
+@app.post("/remote/devices/{device_id}/disconnect")
+def disconnect_device_endpoint(device_id: str):
+    ok = device_manager.remove_device(device_id)
+    return {"ok": ok, "devices": device_manager.list_devices()}
+
+@app.post("/remote/auth/pin")
+def verify_pin_endpoint(req: PinVerifyRequest):
+    token = device_manager.verify_pin(req.pin)
+    if not token:
+        raise HTTPException(status_code=401, detail="Invalid access PIN")
+    return {"ok": True, "token": token}
+
+@app.post("/remote/auth/configure")
+def configure_pin_endpoint(req: PinConfigRequest):
+    device_manager.set_pin_policy(req.required, req.pin)
+    return {"ok": True, "pin_required": device_manager.pin_required}
+
 def start_server(port: int = 8001):
     import uvicorn
-    uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
+    host = os.environ.get("STUDIO_HOST", "0.0.0.0")
+    print(f"[Engine] Starting AI Subtitle Studio Engine on {host}:{port}...")
+    uvicorn.run(app, host=host, port=port, log_level="warning")
 
 if __name__ == "__main__":
     port = int(os.environ.get("STUDIO_PORT", 8001))

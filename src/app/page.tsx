@@ -19,6 +19,8 @@ import ToolsUtilitiesView from "@/components/ToolsUtilitiesView";
 import ProcessingHistoryView from "@/components/ProcessingHistoryView";
 import AboutView from "@/components/AboutView";
 import AudioDiagnosticsModal from "@/components/AudioDiagnosticsModal";
+import { RemoteAccessView } from "@/components/RemoteAccessView";
+import { sendHeartbeat, getOrCreateDeviceId } from "@/lib/remoteClient";
 import { Btn } from "@/components/ui";
 import { Icon, IconName } from "@/components/icons";
 
@@ -33,7 +35,8 @@ export type View =
   | "tools"
   | "history"
   | "about"
-  | "process";
+  | "process"
+  | "remote";
 
 interface Toast {
   id: number;
@@ -231,6 +234,18 @@ export default function Page() {
     return () => window.removeEventListener("keydown", h);
   }, [view]);
 
+  // Connected device heartbeat & presence reporting
+  useEffect(() => {
+    const devId = getOrCreateDeviceId();
+    const taskName = active ? `${active.status}: ${active.name}` : `Viewing ${view}`;
+    sendHeartbeat(devId, taskName).catch(() => {});
+    const interval = setInterval(() => {
+      const curTask = active ? `${active.status}: ${active.name}` : `Viewing ${view}`;
+      sendHeartbeat(devId, curTask).catch(() => {});
+    }, 20000);
+    return () => clearInterval(interval);
+  }, [view, active]);
+
   const startProject = useCallback(
     (id: string) => {
       const p = projects.find((x) => x.id === id);
@@ -290,6 +305,7 @@ export default function Page() {
     history: { title: "Processing History", subtitle: "Execution timelines & live server logs", icon: "history" },
     about: { title: "About & Hardware Specs", subtitle: "System architecture, GPU, & credits", icon: "about" },
     process: { title: "Active Pipeline", subtitle: "Real-time speech-to-text processing", icon: "zap" },
+    remote: { title: "Remote Access & Multi-Device Hub", subtitle: "Wi-Fi LAN & Cloudflare internet access for mobile & friends", icon: "wifi" },
   };
 
   const navSections = [
@@ -308,6 +324,12 @@ export default function Page() {
         { id: "batch" as View, label: "Batch Queue", icon: "folder" as IconName },
         { id: "translate" as View, label: "Translation", icon: "spark" as IconName },
         { id: "models" as View, label: "Models & VRAM", icon: "cpu" as IconName },
+      ],
+    },
+    {
+      label: "MULTI-DEVICE & SHARE",
+      items: [
+        { id: "remote" as View, label: "Remote Access & QR", icon: "wifi" as IconName },
       ],
     },
     {
@@ -535,6 +557,15 @@ export default function Page() {
               Guide
             </Btn>
 
+            <Btn
+              size="sm"
+              icon="wifi"
+              onClick={() => navigateTo("remote")}
+              className={view === "remote" ? "!bg-cyan-500/20 !border-cyan-500/40 !text-cyan-300" : ""}
+            >
+              Share & Mobile
+            </Btn>
+
             <button
               onClick={toggleTheme}
               title={`Switch to ${prefs.theme === "dark" ? "light" : "dark"} mode`}
@@ -685,6 +716,10 @@ export default function Page() {
               onOpenDiagnostics={() => setDiagOpen(true)}
               onOpenSettings={() => setSettingsOpen(true)}
             />
+          )}
+
+          {view === "remote" && (
+            <RemoteAccessView />
           )}
         </main>
       </div>
