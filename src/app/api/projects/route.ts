@@ -4,6 +4,7 @@ import { db } from "@/db";
 import { projects, chunks } from "@/db/schema";
 import { buildChunkPlan } from "@/lib/time";
 import { newId, safeBaseName, isAllowedMedia, projectUploadDir, humanBytes, log } from "@/lib/server";
+import { probeMedia } from "@/lib/audio";
 import { toProject, toChunk } from "@/lib/rows";
 import type { StudioSettings } from "@/lib/types";
 
@@ -46,11 +47,21 @@ export async function POST(req: Request) {
     /* non-fatal */
   }
 
-  const durationSec = Math.max(1, Number(meta.durationSec) || 120);
   const id = newId();
   const dir = projectUploadDir(id);
   const dest = require("node:path").join(dir, name);
   await require("node:fs/promises").writeFile(dest, Buffer.from(await file.arrayBuffer()));
+
+  let durationSec = Math.max(1, Number(meta.durationSec) || 0);
+  try {
+    const probe = probeMedia(dest);
+    if (probe.durationSec && probe.durationSec > 0) {
+      durationSec = Math.round(probe.durationSec * 10) / 10;
+    }
+  } catch {
+    /* fallback to meta or 120 */
+  }
+  if (!durationSec || durationSec <= 0) durationSec = 120;
 
   const chunkSizeSec = Number(settings.chunkSizeSec) || 600;
   const overlapSec = Math.max(0, Math.min(Number(settings.overlapSec) || 3, 30));

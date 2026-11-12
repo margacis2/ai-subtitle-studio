@@ -142,37 +142,115 @@ export const burnSubtitles = (
   payload: { format: "srt" | "ass"; lines: SubLine[]; field: "translation" | "original"; speakerOn: boolean; style?: object },
 ) => api<BurnResult>(`/api/burn`, { method: "POST", body: JSON.stringify({ projectId, ...payload }) });
 
-/** Read media duration client-side without downloading anything. */
+/** Read media duration client-side with fast fallback to server FFprobe. */
 export function probeDuration(file: File): Promise<number> {
   return new Promise((resolve) => {
-    const url = URL.createObjectURL(file);
-    const isAudio = /\.(mp3|wav|flac|m4a|ogg|aac|opus|wma)$/i.test(file.name);
-    const el = document.createElement(isAudio ? "audio" : "video") as HTMLMediaElement;
-    let done = false;
-    const finish = (d: number) => {
-      if (done) return;
-      done = true;
-      URL.revokeObjectURL(url);
-      resolve(isFinite(d) && d > 0 ? d : 0);
-    };
-    el.preload = "metadata";
-    el.onloadedmetadata = () => finish(el.duration);
-    el.onerror = () => finish(0);
-    setTimeout(() => finish(0), 12000);
-    el.src = url;
+    try {
+      const url = URL.createObjectURL(file);
+      const isAudio = /\.(mp3|wav|flac|m4a|ogg|aac|opus|wma|amr|weba|caf)$/i.test(file.name);
+      const el = document.createElement(isAudio ? "audio" : "video") as HTMLMediaElement;
+      let done = false;
+      const finish = (d: number) => {
+        if (done) return;
+        done = true;
+        try { URL.revokeObjectURL(url); } catch {}
+        resolve(isFinite(d) && d > 0 ? d : 0);
+      };
+      el.preload = "metadata";
+      el.onloadedmetadata = () => finish(el.duration);
+      el.onerror = () => finish(0);
+      // Fast 600ms timeout: if mobile browser cannot probe metadata instantly,
+      // resolve 0 and let server-side FFprobe probe it accurately upon upload
+      setTimeout(() => finish(0), 600);
+      el.src = url;
+    } catch {
+      resolve(0);
+    }
   });
+}
+
+export interface UploadProgress {
+  percent: number;
+  loadedBytes: number;
+  totalBytes: number;
+  speedBytesPerSec: number;
 }
 
 export interface UploadResult {
   project: Project;
 }
 
+export function uploadProjectWithProgress(
+  file: File,
+  meta: { durationSec: number },
+  settings: StudioSettings,
+  onProgress?: (progress: UploadProgress) => void,
+  abortSignal?: AbortSignal,
+): Promise<Project> {
+  return new Promise((resolve, reject) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    fd.append("meta", JSON.stringify(meta));
+    fd.append("settings", JSON.stringify(settings));
+
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", "/api/projects");
+
+    const startTime = Date.now();
+
+    if (xhr.upload && onProgress) {
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable && e.total > 0) {
+          const elapsedSec = Math.max(0.1, (Date.now() - startTime) / 1000);
+          const speed = Math.round(e.loaded / elapsedSec);
+          const percent = Math.min(100, Math.round((e.loaded / e.total) * 100));
+          onProgress({
+            percent,
+            loadedBytes: e.loaded,
+            totalBytes: e.total,
+            speedBytesPerSec: speed,
+          });
+        }
+      };
+    }
+
+    xhr.onload = () => {
+      try {
+        const ct = xhr.getResponseHeader("content-type") || "";
+        let body: any = null;
+        if (ct.includes("application/json")) {
+          body = JSON.parse(xhr.responseText);
+        } else {
+          body = { error: xhr.responseText.slice(0, 300) };
+        }
+
+        if (xhr.status >= 200 && xhr.status < 300) {
+          resolve(body.project);
+        } else {
+          reject(new ApiError(xhr.status, body?.error || body?.message || `Upload failed (${xhr.status})`));
+        }
+      } catch (err: any) {
+        reject(new ApiError(xhr.status || 500, err.message || "Failed to parse upload response"));
+      }
+    };
+
+    xhr.onerror = () => {
+      reject(new ApiError(0, "Network connection error during file upload. Check Wi-Fi or Internet access."));
+    };
+
+    if (abortSignal) {
+      abortSignal.addEventListener("abort", () => {
+        xhr.abort();
+        reject(new ApiError(0, "Upload cancelled by user."));
+      });
+    }
+
+    xhr.send(fd);
+  });
+}
+
 export async function uploadProject(file: File, meta: { durationSec: number }, settings: StudioSettings): Promise<Project> {
-  const fd = new FormData();
-  fd.append("file", file);
-  fd.append("meta", JSON.stringify(meta));
-  fd.append("settings", JSON.stringify(settings));
-  return api<UploadResult>("/api/projects", { method: "POST", body: fd }).then((r) => r.project);
+  return uploadProjectWithProgress(file, meta, settings);
 }
 
 export const mediaUrl = (id: string, f?: string) =>

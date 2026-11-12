@@ -76,3 +76,4 @@ def generate_qr_code_base64(text: str) -> Optional[str]:
     except Exception as e:
         print(f"[WARN] QR code generation error: {e}")
         return None
+

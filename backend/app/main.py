@@ -29,6 +29,18 @@ if sys.platform == "win32":
         except Exception:
             pass
 
+# Fix PyAV incompatibility where av.open does not support metadata_errors in newer versions
+try:
+    import av
+    if hasattr(av, "open"):
+        _orig_av_open = av.open
+        def _safe_av_open(*args, **kwargs):
+            kwargs.pop("metadata_errors", None)
+            return _orig_av_open(*args, **kwargs)
+        av.open = _safe_av_open
+except Exception:
+    pass
+
 from backend.app.core.hardware import detect_hardware, get_model_cache_dir
 from backend.app.models.manager import (
     get_installed_models,

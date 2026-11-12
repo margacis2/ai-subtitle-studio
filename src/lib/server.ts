@@ -42,10 +42,12 @@ export function safeBaseName(name: string): string {
 const ALLOWED_EXT = new Set([
   ".mp4", ".mkv", ".mov", ".avi", ".webm", ".m4v", ".mpg", ".mpeg", ".ts", ".wmv",
   ".mp3", ".wav", ".flac", ".m4a", ".ogg", ".aac", ".opus", ".wma",
+  ".3gp", ".3gpp", ".amr", ".m4b", ".weba", ".caf", ".ogv", ".oga", ".asf",
 ]);
 
 export function isAllowedMedia(name: string): boolean {
-  return ALLOWED_EXT.has(path.extname(name).toLowerCase());
+  const ext = path.extname(name).toLowerCase();
+  return ALLOWED_EXT.has(ext) || !ext; // Allow if extension matches or empty (will be auto-probed)
 }
 
 export function log(msg: string) {
@@ -106,7 +108,19 @@ export async function ensureBackendRunning(): Promise<boolean> {
     try {
       const { spawn } = await import("node:child_process");
       const rootDir = process.cwd();
-      const pythonExecutable = process.platform === "win32" ? "python" : "python3";
+      let pythonExecutable = process.platform === "win32" ? "python" : "python3";
+      if (process.platform === "win32") {
+        const userVenv = path.join(process.env.USERPROFILE || "", "venv", "Scripts", "python.exe");
+        const localVenv = path.join(rootDir, "venv", "Scripts", "python.exe");
+        const sysPy = "C:\\Python314\\python.exe";
+        if (fs.existsSync(userVenv)) {
+          pythonExecutable = userVenv;
+        } else if (fs.existsSync(localVenv)) {
+          pythonExecutable = localVenv;
+        } else if (fs.existsSync(sysPy)) {
+          pythonExecutable = sysPy;
+        }
+      }
       const env = {
         ...process.env,
         STUDIO_PORT: "8001",

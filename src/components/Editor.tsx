@@ -522,8 +522,37 @@ export default function Editor({
             tone={(p.qualityScore ?? 0) >= 85 ? "ok" : "warn"}
           />
         </div>
-        <div className="mt-3 flex flex-wrap gap-2">
-          <Btn variant="primary" icon="download" onClick={() => doExport()}>Open subtitle (SRT)</Btn>
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <Btn
+            variant="primary"
+            icon="download"
+            onClick={() => doExport()}
+            className="!min-h-[42px] !font-bold !px-4 shadow-sm"
+          >
+            Download Subtitle (SRT)
+          </Btn>
+          <Btn
+            icon="download"
+            onClick={() => {
+              const prev = exp.format;
+              exp.format = "vtt";
+              doExport();
+              exp.format = prev;
+            }}
+          >
+            VTT
+          </Btn>
+          <Btn
+            icon="download"
+            onClick={() => {
+              const prev = exp.format;
+              exp.format = "ass";
+              doExport();
+              exp.format = prev;
+            }}
+          >
+            ASS
+          </Btn>
           <Btn icon="save" onClick={() => void save()}>Save</Btn>
           <Btn icon="spark" onClick={translateAllWithOpus} disabled={translatingWithOpus}>
             {translatingWithOpus ? "Translating with OPUS..." : "Re-translate with Local OPUS"}

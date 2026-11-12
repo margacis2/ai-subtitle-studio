@@ -18,13 +18,21 @@ import { fmtBytes, fmtClock } from "@/lib/time";
 import { recommend, vramWarning, checkHardwareCompatibility } from "@/lib/modelManager";
 import { BUILTIN_PRESETS, Preset } from "@/lib/presets";
 import { sleep, simulatedWorkMs, transcribeChunk } from "@/lib/demo";
-import { probeDuration, uploadProject, deleteProject, patchProject, unloadModels } from "@/lib/client";
+import {
+  probeDuration,
+  uploadProject,
+  uploadProjectWithProgress,
+  deleteProject,
+  patchProject,
+  unloadModels,
+  type UploadProgress,
+} from "@/lib/client";
 import { HardwarePanel } from "./HardwarePanel";
 import { HardwareWarningBanner } from "./HardwareWarningBanner";
 import { Badge, Btn, Field, Kbd, Progress, SectionTitle, Select, Toggle } from "./ui";
 import { Icon } from "./icons";
 
-const MEDIA_RE = /\.(mp4|mkv|mov|avi|webm|m4v|mpg|mpeg|ts|wmv|mp3|wav|flac|m4a|ogg|aac|opus|wma)$/i;
+const MEDIA_RE = /\.(mp4|mkv|mov|avi|webm|m4v|mpg|mpeg|ts|wmv|mp3|wav|flac|m4a|ogg|aac|opus|wma|3gp|3gpp|amr|weba|caf|m4b|ogv|oga|asf)$/i;
 
 const CHUNK_OPTS = [
   { value: "120", label: "2 minutes" },
@@ -82,6 +90,12 @@ export default function Home({
   const fileRef = useRef<HTMLInputElement>(null);
   const [drag, setDrag] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<{
+    fileName: string;
+    percent: number;
+    speedStr: string;
+    sizeStr: string;
+  } | null>(null);
   const [confirmDel, setConfirmDel] = useState<string | null>(null);
   const [benchRunning, setBenchRunning] = useState<null | string>(null);
   const [presetName, setPresetName] = useState("");
@@ -100,27 +114,49 @@ export default function Home({
       setBusy(true);
       const created: Project[] = [];
       for (const file of arr) {
-        if (!MEDIA_RE.test(file.name)) {
+        const isMedia =
+          MEDIA_RE.test(file.name) ||
+          file.type.startsWith("video/") ||
+          file.type.startsWith("audio/");
+        if (!isMedia) {
           onToast("err", `Unsupported file type: ${file.name}`);
           continue;
         }
-        onToast("info", `Reading ${file.name}…`);
+        onToast("info", `Preparing ${file.name}…`);
         const dur = await probeDuration(file);
-        if (!dur) onToast("warn", `Could not read duration of ${file.name} — assuming 2 minutes.`);
         try {
-          const p = await uploadProject(file, { durationSec: dur || 120 }, settings);
+          const p = await uploadProjectWithProgress(
+            file,
+            { durationSec: dur || 120 },
+            settings,
+            (prog) => {
+              const mbSpeed = (prog.speedBytesPerSec / (1024 * 1024)).toFixed(1);
+              const curMb = (prog.loadedBytes / (1024 * 1024)).toFixed(1);
+              const totMb = (prog.totalBytes / (1024 * 1024)).toFixed(1);
+              setUploadProgress({
+                fileName: file.name,
+                percent: prog.percent,
+                speedStr: `${mbSpeed} MB/s`,
+                sizeStr: `${curMb} / ${totMb} MB`,
+              });
+            },
+          );
           created.push(p);
-        } catch (e) {
+        } catch (e: any) {
           onToast("err", `Upload failed: ${e instanceof Error ? e.message : String(e)}`);
+        } finally {
+          setUploadProgress(null);
         }
       }
       setBusy(false);
       if (created.length > 0) {
-        onToast("ok", `${created.length} file${created.length > 1 ? "s" : ""} added to the queue`);
-        onRefresh(); // <--- ADD THIS LINE to instantly show uploads
+        onToast("ok", `${created.length} file${created.length > 1 ? "s" : ""} uploaded to Windows PC`);
+        onRefresh();
+        // Automatically start the project so mobile user transitions straight to live transcription!
+        onStart(created[0].id);
       }
     },
-    [settings, onToast, onRefresh], // <--- Add onRefresh to dependencies
+    [settings, onToast, onRefresh, onStart],
   );
 
   const rec = recommend(hardware, settings.mode, 0);
@@ -182,32 +218,63 @@ export default function Home({
           onDragOver={(e) => { e.preventDefault(); setDrag(true); }}
           onDragLeave={() => setDrag(false)}
           onDrop={(e) => { e.preventDefault(); setDrag(false); void addFiles(e.dataTransfer.files); }}
-          className="panel flex flex-col items-center gap-3 px-6 py-10 text-center transition-colors"
+          className="panel flex flex-col items-center gap-3 px-4 py-8 sm:px-6 sm:py-10 text-center transition-colors"
           style={{ borderColor: drag ? "var(--accent)" : "var(--line)", background: drag ? "var(--accent-soft)" : "var(--bg2)" }}
         >
-          <span className="flex h-14 w-14 items-center justify-center rounded-2xl" style={{ background: "var(--accent-soft)", color: "var(--accent)" }}>
-            <Icon name="upload" size={26} />
-          </span>
-          <div>
-            <div className="font-display text-[1.15rem] font-bold">Drop video or audio here</div>
-            <div className="mt-1 text-[0.8rem]" style={{ color: "var(--muted)" }}>
-              MP4 · MKV · MOV · WEBM · MP3 · WAV · FLAC — up to 400 MB each
+          {uploadProgress ? (
+            <div className="w-full max-w-md p-4 rounded-xl bg-neutral-900 border border-teal-500/50 space-y-3 animate-in fade-in shadow-xl">
+              <div className="flex items-center justify-between text-xs">
+                <span className="font-semibold text-white truncate max-w-[200px]">
+                  📱 {uploadProgress.fileName}
+                </span>
+                <span className="font-mono text-teal-400 font-bold text-sm">
+                  {uploadProgress.percent}%
+                </span>
+              </div>
+              <Progress value={uploadProgress.percent} />
+              <div className="flex items-center justify-between text-[11px] text-neutral-400 font-mono">
+                <span>{uploadProgress.sizeStr}</span>
+                <span className="text-teal-400 font-semibold">↑ {uploadProgress.speedStr}</span>
+              </div>
+              <div className="text-[11px] text-center text-teal-300/80 font-medium">
+                Uploading to Windows Host for RTX 3050 GPU processing…
+              </div>
             </div>
-          </div>
-          <div className="flex flex-wrap items-center justify-center gap-2">
-            <Btn variant="primary" icon="folder" onClick={() => fileRef.current?.click()} disabled={busy}>
-              {busy ? "Reading file…" : "Select files"}
-            </Btn>
-            <Kbd>Ctrl + O</Kbd>
-          </div>
-          <div className="mt-1 flex items-center gap-1.5 text-[0.72rem]" style={{ color: "var(--ok)" }}>
-            <Icon name="shield" size={13} />
-            Local processing — media never leaves this machine
-          </div>
+          ) : (
+            <>
+              <span className="flex h-14 w-14 items-center justify-center rounded-2xl" style={{ background: "var(--accent-soft)", color: "var(--accent)" }}>
+                <Icon name="upload" size={26} />
+              </span>
+              <div>
+                <div className="font-display text-[1.15rem] font-bold">Upload video or audio</div>
+                <div className="mt-1 text-[0.8rem]" style={{ color: "var(--muted)" }}>
+                  MP4 · MKV · MOV · WEBM · MP3 · WAV · M4A · 3GP · FLAC
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center justify-center gap-2">
+                <Btn
+                  variant="primary"
+                  icon="folder"
+                  onClick={() => fileRef.current?.click()}
+                  disabled={busy}
+                  className="!min-h-[46px] !px-6 !text-sm !font-semibold shadow-md active:scale-95 transition-transform"
+                >
+                  {busy ? "Uploading file…" : "Select from device"}
+                </Btn>
+                <span className="hidden sm:inline-flex">
+                  <Kbd>Ctrl + O</Kbd>
+                </span>
+              </div>
+              <div className="mt-1 flex items-center gap-1.5 text-[0.72rem]" style={{ color: "var(--ok)" }}>
+                <Icon name="shield" size={13} />
+                Host PC GPU Engine — zero cloud quota or fees
+              </div>
+            </>
+          )}
           <input
             ref={fileRef}
             type="file"
-            accept="video/*,audio/*,.mkv,.ts,.m4a,.opus"
+            accept="video/*,audio/*,.mp4,.mkv,.mov,.avi,.webm,.m4a,.mp3,.wav,.flac,.ogg,.opus,.ts,.3gp,.3gpp,.aac,.amr,.m4b"
             multiple
             className="hidden"
             onChange={(e) => {

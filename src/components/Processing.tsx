@@ -333,8 +333,14 @@ export default function Processing({
       let targetLang = p.targetLang || "original";
       let chosenEngine = p.translationModel || "nllb";
 
-      // If interactive prompt is requested (or pauseBeforeTranslate enabled), wait for user choice
-      if (p.pauseBeforeTranslate !== false) {
+      // Only pause if explicitly requested AND destination is not "original"
+      const needsUserConfirmation =
+        p.pauseBeforeTranslate === true &&
+        targetLang !== "original" &&
+        targetLang !== "none" &&
+        targetLang !== "";
+
+      if (needsUserConfirmation) {
         setActiveStage("awaiting_translation");
         logEv("wait", `[Stage 2] Awaiting user confirmation: select translation model & target language...`);
 
@@ -379,8 +385,10 @@ export default function Processing({
           logEv("info", `[VRAM] Auto-unloading Whisper ASR before starting translation...`);
           try {
             await unloadModels();
-            logEv("ok", `[VRAM] GPU VRAM released successfully.`);
-          } catch {}
+            logEv("ok", `[VRAM] GPU VRAM released.`);
+          } catch (vErr: any) {
+            logEv("warn", `[VRAM] Flush notice: ${vErr.message}`);
+          }
         }
       }
 
@@ -920,6 +928,155 @@ export default function Processing({
         </div>
       </div>
 
+      {/* Processing Finished Banner */}
+      {finished && (
+        <div className="panel p-5 border-2 border-emerald-500/60 bg-emerald-950/30 rounded-2xl shadow-xl flex flex-col sm:flex-row items-center justify-between gap-4 animate-in fade-in">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400 text-2xl shrink-0">
+              ✓
+            </div>
+            <div>
+              <h3 className="font-display text-base font-bold text-white">
+                Subtitles Ready — {p.name}
+              </h3>
+              <p className="text-xs text-neutral-300 mt-0.5">
+                {detail?.subtitles.length ?? 0} subtitle lines generated using NVIDIA RTX 3050 CUDA GPU.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2.5 w-full sm:w-auto justify-end">
+            <Btn
+              variant="primary"
+              icon="scissors"
+              onClick={onDone}
+              className="!bg-emerald-500 hover:!bg-emerald-400 !text-black !font-bold !py-2.5 !px-5 !text-sm shadow-lg active:scale-95 w-full sm:w-auto"
+            >
+              Open in Subtitle Editor
+            </Btn>
+          </div>
+        </div>
+      )}
+
+      {/* Interactive Translation Selection Card (Rendered at top for priority) */}
+      {awaitingTranslationInput && (
+        <div className="panel p-5 border-2 border-teal-500/60 bg-teal-950/30 space-y-4 rounded-2xl shadow-xl animate-in fade-in zoom-in-95 duration-200">
+          <div className="border-b pb-3 border-teal-500/20">
+            <div className="flex items-center gap-2">
+              <span className="chip border-teal-500 text-teal-300 font-bold text-xs bg-teal-500/10">
+                ✓ Stage 1 Complete
+              </span>
+              <h3 className="font-display text-base font-bold text-white">
+                Select Translation Model & Language
+              </h3>
+            </div>
+            <p className="text-xs text-neutral-300 mt-1">
+              Audio transcribed in <strong className="text-teal-300">{asrDurationSec?.toFixed(1)}s</strong>. Detected language:{" "}
+              <strong className="text-white">
+                {langFlag(awaitingTranslationInput.detectedLang)} {langName(awaitingTranslationInput.detectedLang)}
+              </strong>{" "}
+              ({awaitingTranslationInput.totalLines} lines). Configure neural translation or proceed with original subtitles.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+            <div>
+              <label className="lbl block mb-1.5 text-neutral-300 font-semibold text-xs">
+                Neural Translation Model
+              </label>
+              <select
+                className="w-full bg-neutral-900 border border-neutral-700 rounded-lg p-2.5 text-xs text-neutral-100 font-medium focus:ring-1 focus:ring-teal-500"
+                value={promptModel}
+                onChange={(e) => setPromptModel(e.target.value)}
+              >
+                {TRANSLATION_MODELS.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.name} ({m.vramGb} GB VRAM)
+                  </option>
+                ))}
+              </select>
+              <p className="text-[0.68rem] text-neutral-400 mt-1">
+                {TRANSLATION_MODELS.find((m) => m.id === promptModel)?.description}
+              </p>
+            </div>
+
+            <div>
+              <label className="lbl block mb-1.5 text-neutral-300 font-semibold text-xs">
+                Target Subtitle Language
+              </label>
+              <select
+                className="w-full bg-neutral-900 border border-neutral-700 rounded-lg p-2.5 text-xs text-neutral-100 font-medium focus:ring-1 focus:ring-teal-500"
+                value={promptTargetLang}
+                onChange={(e) => setPromptTargetLang(e.target.value)}
+              >
+                {TARGET_LANGS.map((l) => (
+                  <option key={l.code} value={l.code}>
+                    {l.flag} {l.name} {l.code === "original" ? "(Keep Original)" : ""}
+                  </option>
+                ))}
+              </select>
+              <p className="text-[0.68rem] text-neutral-400 mt-1">
+                Choose destination language or select Original to skip translation.
+              </p>
+            </div>
+          </div>
+
+          {/* VRAM optimization checkbox */}
+          <div className="rounded-lg bg-neutral-900/90 border border-neutral-800 p-3 flex items-start gap-3">
+            <input
+              type="checkbox"
+              id="unloadAsrCheckbox"
+              checked={promptUnloadAsr}
+              onChange={(e) => setPromptUnloadAsr(e.target.checked)}
+              className="mt-0.5 h-4 w-4 rounded border-neutral-700 text-teal-600 focus:ring-teal-500"
+            />
+            <label htmlFor="unloadAsrCheckbox" className="text-xs cursor-pointer">
+              <span className="font-bold text-white block">
+                Unload Whisper ASR from VRAM before translation (Recommended)
+              </span>
+              <span className="text-neutral-400 text-[0.72rem] block mt-0.5">
+                Frees GPU memory from Whisper to give Meta NLLB-200 or MarianMT full dedicated VRAM for smooth translation.
+              </span>
+            </label>
+          </div>
+
+          <div className="flex flex-wrap items-center justify-end gap-2.5 pt-1">
+            <Btn
+              onClick={() => {
+                if (translationDecisionRef.current) {
+                  translationDecisionRef.current({
+                    action: "skip",
+                    model: promptModel,
+                    targetLang: "original",
+                    unloadAsr: false,
+                  });
+                }
+              }}
+              className="w-full sm:w-auto"
+            >
+              Keep Original Subtitles (Skip Translation)
+            </Btn>
+            <Btn
+              variant="primary"
+              icon="spark"
+              onClick={() => {
+                if (translationDecisionRef.current) {
+                  translationDecisionRef.current({
+                    action: promptTargetLang === "original" ? "skip" : "translate",
+                    model: promptModel,
+                    targetLang: promptTargetLang,
+                    unloadAsr: promptUnloadAsr,
+                  });
+                }
+              }}
+              className="w-full sm:w-auto"
+            >
+              {promptTargetLang === "original" ? "Finalize Original Subtitles" : "Unload VRAM & Start Translation"}
+            </Btn>
+          </div>
+        </div>
+      )}
+
       {/* ============================================================== */}
       {/* MAIN LAYOUT: LOG ON LEFT (COL 1), SUBTITLES ON RIGHT (COL 2) */}
       {/* ============================================================== */}
@@ -985,123 +1142,6 @@ export default function Processing({
 
         {/* RIGHT COLUMN: ORIGINAL & TRANSLATED SUBTITLES STREAM (7 cols on lg) */}
         <div className="space-y-4 lg:col-span-7">
-          {/* Interactive Translation Selection Card */}
-          {awaitingTranslationInput && (
-            <div className="panel p-5 border-2 border-teal-500/60 bg-teal-950/20 space-y-4 rounded-xl shadow-xl shadow-teal-950/40 animate-in fade-in zoom-in-95 duration-200">
-              <div className="border-b pb-3 border-teal-500/20">
-                <div className="flex items-center gap-2">
-                  <span className="chip border-teal-500 text-teal-300 font-bold text-xs bg-teal-500/10">
-                    ✓ Stage 1 Complete
-                  </span>
-                  <h3 className="font-display text-base font-bold text-white">
-                    Select Translation Model & Language
-                  </h3>
-                </div>
-                <p className="text-xs text-neutral-300 mt-1">
-                  Audio transcribed in <strong className="text-teal-300">{asrDurationSec?.toFixed(1)}s</strong>. Detected language:{" "}
-                  <strong className="text-white">
-                    {langFlag(awaitingTranslationInput.detectedLang)} {langName(awaitingTranslationInput.detectedLang)}
-                  </strong>{" "}
-                  ({awaitingTranslationInput.totalLines} lines). Configure neural translation or proceed with original subtitles.
-                </p>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-                <div>
-                  <label className="lbl block mb-1.5 text-neutral-300 font-semibold text-xs">
-                    Neural Translation Model
-                  </label>
-                  <select
-                    className="w-full bg-neutral-900 border border-neutral-700 rounded-lg p-2.5 text-xs text-neutral-100 font-medium focus:ring-1 focus:ring-teal-500"
-                    value={promptModel}
-                    onChange={(e) => setPromptModel(e.target.value)}
-                  >
-                    {TRANSLATION_MODELS.map((m) => (
-                      <option key={m.id} value={m.id}>
-                        {m.name} ({m.vramGb} GB VRAM)
-                      </option>
-                    ))}
-                  </select>
-                  <p className="text-[0.68rem] text-neutral-400 mt-1">
-                    {TRANSLATION_MODELS.find((m) => m.id === promptModel)?.description}
-                  </p>
-                </div>
-
-                <div>
-                  <label className="lbl block mb-1.5 text-neutral-300 font-semibold text-xs">
-                    Target Subtitle Language
-                  </label>
-                  <select
-                    className="w-full bg-neutral-900 border border-neutral-700 rounded-lg p-2.5 text-xs text-neutral-100 font-medium focus:ring-1 focus:ring-teal-500"
-                    value={promptTargetLang}
-                    onChange={(e) => setPromptTargetLang(e.target.value)}
-                  >
-                    {TARGET_LANGS.map((l) => (
-                      <option key={l.code} value={l.code}>
-                        {l.flag} {l.name} {l.code === "original" ? "(Keep Original)" : ""}
-                      </option>
-                    ))}
-                  </select>
-                  <p className="text-[0.68rem] text-neutral-400 mt-1">
-                    Choose destination language or select Original to skip translation.
-                  </p>
-                </div>
-              </div>
-
-              {/* VRAM optimization checkbox */}
-              <div className="rounded-lg bg-neutral-900/90 border border-neutral-800 p-3 flex items-start gap-3">
-                <input
-                  type="checkbox"
-                  id="unloadAsrCheckbox"
-                  checked={promptUnloadAsr}
-                  onChange={(e) => setPromptUnloadAsr(e.target.checked)}
-                  className="mt-0.5 h-4 w-4 rounded border-neutral-700 text-teal-600 focus:ring-teal-500"
-                />
-                <label htmlFor="unloadAsrCheckbox" className="text-xs cursor-pointer">
-                  <span className="font-bold text-white block">
-                    Unload Whisper ASR from VRAM before translation (Recommended)
-                  </span>
-                  <span className="text-neutral-400 text-[0.72rem] block mt-0.5">
-                    Frees ~1.5 - 3 GB of GPU memory from Whisper to give Meta NLLB-200 or MarianMT full dedicated VRAM for smooth, unthrottled translation.
-                  </span>
-                </label>
-              </div>
-
-              <div className="flex flex-wrap items-center justify-end gap-2.5 pt-1">
-                <Btn
-                  onClick={() => {
-                    if (translationDecisionRef.current) {
-                      translationDecisionRef.current({
-                        action: "skip",
-                        model: promptModel,
-                        targetLang: "original",
-                        unloadAsr: false,
-                      });
-                    }
-                  }}
-                >
-                  Keep Original Subtitles (Skip Translation)
-                </Btn>
-                <Btn
-                  variant="primary"
-                  icon="spark"
-                  onClick={() => {
-                    if (translationDecisionRef.current) {
-                      translationDecisionRef.current({
-                        action: promptTargetLang === "original" ? "skip" : "translate",
-                        model: promptModel,
-                        targetLang: promptTargetLang,
-                        unloadAsr: promptUnloadAsr,
-                      });
-                    }
-                  }}
-                >
-                  {promptTargetLang === "original" ? "Finalize Original Subtitles" : "Unload VRAM & Start Translation"}
-                </Btn>
-              </div>
-            </div>
-          )}
-
           <div className="panel p-4 space-y-3">
             <div className="flex items-center justify-between border-b pb-2 border-neutral-800">
               <div className="flex items-center gap-2">

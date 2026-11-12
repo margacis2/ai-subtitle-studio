@@ -303,7 +303,7 @@ export const DEFAULT_SETTINGS: StudioSettings = {
   targetLang: "original",
   asrModel: "auto",
   translationModel: "nllb",
-  pauseBeforeTranslate: true,
+  pauseBeforeTranslate: false,
   unloadAsrBeforeTranslate: true,
   device: "auto",
   computeType: "auto",

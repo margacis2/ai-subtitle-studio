@@ -87,6 +87,7 @@ export default function Page() {
   const [navHistory, setNavHistory] = useState<View[]>(["dashboard"]);
   const [navIndex, setNavIndex] = useState<number>(0);
   const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState<boolean>(false);
 
   const [projects, setProjects] = useState<Project[]>([]);
   const [active, setActive] = useState<Project | null>(null);
@@ -110,6 +111,7 @@ export default function Page() {
       return next;
     });
     setNavIndex((prev) => prev + 1);
+    setMobileMenuOpen(false);
   }, [navIndex]);
 
   const navigateBack = useCallback(() => {
@@ -343,9 +345,9 @@ export default function Page() {
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-[var(--bg)] text-[var(--ink)]">
-      {/* Collapsible Left Sidebar */}
+      {/* Collapsible Left Sidebar (Desktop) */}
       <aside
-        className={`flex flex-col border-r transition-all duration-200 select-none shrink-0 z-30 ${
+        className={`hidden lg:flex flex-col border-r transition-all duration-200 select-none shrink-0 z-30 ${
           sidebarCollapsed ? "w-16" : "w-64"
         }`}
         style={{
@@ -488,11 +490,95 @@ export default function Page() {
         </div>
       </aside>
 
+      {/* Mobile Slide-Over Navigation Drawer */}
+      {mobileMenuOpen && (
+        <div className="fixed inset-0 z-50 flex lg:hidden">
+          <div
+            className="fixed inset-0 bg-black/70 backdrop-blur-sm transition-opacity"
+            onClick={() => setMobileMenuOpen(false)}
+          />
+          <div className="relative flex flex-col w-72 max-w-[85vw] h-full bg-neutral-950 border-r border-neutral-800 shadow-2xl p-4 overflow-y-auto z-10">
+            {/* Mobile Drawer Header */}
+            <div className="flex items-center justify-between pb-3.5 border-b border-neutral-800">
+              <div className="flex items-center gap-2.5">
+                <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-cyan-600 text-white font-bold">
+                  <Icon name="logo" size={18} />
+                </span>
+                <div>
+                  <div className="font-bold text-sm text-white">AI Subtitle Studio</div>
+                  <div className="text-[10px] text-cyan-400 font-mono">MOBILE ACCELERATED</div>
+                </div>
+              </div>
+              <button
+                onClick={() => setMobileMenuOpen(false)}
+                className="p-1.5 rounded-lg text-neutral-400 hover:text-white bg-neutral-900 border border-neutral-800"
+              >
+                ✕
+              </button>
+            </div>
+            {/* Sections */}
+            <div className="flex-1 py-3 space-y-4">
+              {navSections.map((sec) => (
+                <div key={sec.label} className="space-y-1">
+                  <div className="px-2 py-1 text-[10px] font-bold text-neutral-400 tracking-wider">
+                    {sec.label}
+                  </div>
+                  {sec.items.map((item) => {
+                    const isActive = view === item.id;
+                    return (
+                      <button
+                        key={item.id}
+                        onClick={() => {
+                          if (item.id === "editor" && !active && projects.length > 0) {
+                            setActive(projects[0]);
+                          }
+                          navigateTo(item.id);
+                        }}
+                        className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-xs font-semibold transition ${
+                          isActive
+                            ? "bg-cyan-500/20 text-cyan-300 border border-cyan-500/40"
+                            : "text-neutral-300 hover:bg-neutral-900"
+                        }`}
+                      >
+                        <Icon name={item.icon} size={16} className={isActive ? "text-cyan-400" : "text-neutral-400"} />
+                        <span className="flex-1 text-left">{item.label}</span>
+                        {item.badge !== undefined && item.badge > 0 && (
+                          <span className="rounded-full bg-neutral-800 px-2 py-0.5 text-[10px] font-mono text-neutral-300">
+                            {item.badge}
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              ))}
+            </div>
+            {/* Mobile Footer */}
+            <div className="pt-3 border-t border-neutral-800 space-y-2">
+              <button
+                onClick={() => { setSettingsOpen(true); setMobileMenuOpen(false); }}
+                className="flex w-full items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium text-neutral-300 hover:bg-neutral-900"
+              >
+                <Icon name="gear" size={16} />
+                <span>Settings</span>
+              </button>
+              <button
+                onClick={toggleTheme}
+                className="flex w-full items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium text-neutral-300 hover:bg-neutral-900"
+              >
+                <Icon name={prefs.theme === "dark" ? "sun" : "moon"} size={16} />
+                <span>Toggle {prefs.theme === "dark" ? "Light" : "Dark"} Mode</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Main Content Area */}
       <div className="flex flex-1 flex-col overflow-hidden">
         {/* Top Desktop Application Bar */}
         <header
-          className="flex h-14 items-center justify-between border-b px-4 shrink-0 z-20"
+          className="flex h-14 items-center justify-between border-b px-2.5 sm:px-4 shrink-0 z-20"
           style={{
             background: "color-mix(in srgb, var(--bg) 92%, transparent)",
             backdropFilter: "blur(12px)",
@@ -500,8 +586,22 @@ export default function Page() {
           }}
         >
           {/* History Nav & Title */}
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-1">
+          <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+            {/* Mobile Hamburger Drawer Toggle */}
+            <button
+              onClick={() => setMobileMenuOpen(true)}
+              title="Open Navigation Menu"
+              className="lg:hidden p-2 rounded-lg bg-neutral-900 border border-neutral-800 text-neutral-300 hover:text-white flex items-center justify-center shrink-0"
+              aria-label="Open navigation menu"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="3" y1="12" x2="21" y2="12"></line>
+                <line x1="3" y1="6" x2="21" y2="6"></line>
+                <line x1="3" y1="18" x2="21" y2="18"></line>
+              </svg>
+            </button>
+
+            <div className="hidden sm:flex items-center gap-1">
               <button
                 disabled={!mounted || navIndex <= 0}
                 onClick={navigateBack}
@@ -522,12 +622,12 @@ export default function Page() {
 
             <div className="h-4 w-px bg-neutral-800 hidden sm:block" />
 
-            <div className="flex items-center gap-2">
-              <span className="text-cyan-400">
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="text-cyan-400 shrink-0">
                 <Icon name={viewTitles[view]?.icon || "wave"} size={16} />
               </span>
-              <div>
-                <h2 className="font-display text-sm font-bold tracking-tight text-neutral-200 leading-none">
+              <div className="min-w-0">
+                <h2 className="font-display text-xs sm:text-sm font-bold tracking-tight text-neutral-200 leading-none truncate">
                   {viewTitles[view]?.title || "AI Subtitle Studio"}
                 </h2>
                 <span className="text-[0.65rem] text-neutral-400 hidden md:inline">
@@ -538,7 +638,7 @@ export default function Page() {
           </div>
 
           {/* Right Controls */}
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
             <span
               onClick={() => setDiagOpen(true)}
               className="chip cursor-pointer hover:border-emerald-500/50 transition-colors hidden lg:inline-flex"
@@ -549,11 +649,11 @@ export default function Page() {
               NVIDIA RTX 3050 · CUDA Active
             </span>
 
-            <Btn size="sm" icon="shield" onClick={() => setDiagOpen(true)}>
+            <Btn size="sm" icon="shield" onClick={() => setDiagOpen(true)} className="hidden sm:inline-flex">
               Audio Check
             </Btn>
 
-            <Btn size="sm" icon="film" onClick={() => setTutorialOpen(true)}>
+            <Btn size="sm" icon="film" onClick={() => setTutorialOpen(true)} className="hidden md:inline-flex">
               Guide
             </Btn>
 
@@ -561,9 +661,9 @@ export default function Page() {
               size="sm"
               icon="wifi"
               onClick={() => navigateTo("remote")}
-              className={view === "remote" ? "!bg-cyan-500/20 !border-cyan-500/40 !text-cyan-300" : ""}
+              className={`!px-2.5 !py-1 text-xs ${view === "remote" ? "!bg-cyan-500/20 !border-cyan-500/40 !text-cyan-300" : ""}`}
             >
-              Share & Mobile
+              <span className="hidden xs:inline">Share</span> & Mobile
             </Btn>
 
             <button
@@ -585,7 +685,7 @@ export default function Page() {
         </header>
 
         {/* View Container with Scrolling */}
-        <main className="flex-1 overflow-y-auto">
+        <main className="flex-1 overflow-y-auto pb-20 lg:pb-0 w-full">
           {view === "dashboard" && (
             <DashboardView
               projects={projects}
@@ -759,6 +859,64 @@ export default function Page() {
           </div>
         ))}
       </div>
+      {/* Mobile Bottom Navigation Bar */}
+      <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-neutral-950/95 border-t border-neutral-800 backdrop-blur-md flex items-center justify-around py-1.5 px-2 safe-area-bottom">
+        <button
+          onClick={() => navigateTo("home")}
+          className={`flex flex-col items-center justify-center py-1 px-3 rounded-xl transition ${
+            view === "home" ? "text-cyan-400 font-bold" : "text-neutral-400 hover:text-neutral-200"
+          }`}
+        >
+          <Icon name="wave" size={20} />
+          <span className="text-[10px] mt-0.5">Transcribe</span>
+        </button>
+
+        <button
+          onClick={() => navigateTo("library")}
+          className={`relative flex flex-col items-center justify-center py-1 px-3 rounded-xl transition ${
+            view === "library" ? "text-cyan-400 font-bold" : "text-neutral-400 hover:text-neutral-200"
+          }`}
+        >
+          <Icon name="library" size={20} />
+          <span className="text-[10px] mt-0.5">Library</span>
+          {projects.length > 0 && (
+            <span className="absolute top-0 right-2 flex h-4 w-4 items-center justify-center rounded-full bg-cyan-600 text-[9px] font-bold text-white">
+              {projects.length}
+            </span>
+          )}
+        </button>
+
+        <button
+          onClick={() => {
+            if (!active && projects.length > 0) setActive(projects[0]);
+            navigateTo("editor");
+          }}
+          className={`flex flex-col items-center justify-center py-1 px-3 rounded-xl transition ${
+            view === "editor" ? "text-cyan-400 font-bold" : "text-neutral-400 hover:text-neutral-200"
+          }`}
+        >
+          <Icon name="scissors" size={20} />
+          <span className="text-[10px] mt-0.5">Editor</span>
+        </button>
+
+        <button
+          onClick={() => navigateTo("remote")}
+          className={`flex flex-col items-center justify-center py-1 px-3 rounded-xl transition ${
+            view === "remote" ? "text-cyan-400 font-bold" : "text-neutral-400 hover:text-neutral-200"
+          }`}
+        >
+          <Icon name="wifi" size={20} />
+          <span className="text-[10px] mt-0.5">Share / QR</span>
+        </button>
+
+        <button
+          onClick={() => setMobileMenuOpen(true)}
+          className="flex flex-col items-center justify-center py-1 px-3 rounded-xl text-neutral-400 hover:text-neutral-200 transition"
+        >
+          <Icon name="tools" size={20} />
+          <span className="text-[10px] mt-0.5">Menu</span>
+        </button>
+      </nav>
     </div>
   );
 }
