@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import fs from "node:fs";
+import path from "node:path";
 import { asc, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { projects, chunks, subtitles } from "@/db/schema";
@@ -31,6 +32,7 @@ const PATCHABLE = [
   "status", "stage", "progress", "qualityScore", "processingTimeSec",
   "asrTimeSec", "translationTimeSec", "asrModel", "targetLang", "sourceLang",
   "engineNote", "vadJson", "startedAt", "workers", "device", "computeType",
+  "completedChunks",
 ] as const;
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -41,11 +43,39 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       return NextResponse.json({ error: "Invalid body", code: "INVALID_BODY" }, { status: 400 });
     }
 
+    const [existing] = await db.select().from(projects).where(eq(projects.id, id));
+    if (!existing) return NextResponse.json({ error: "Project not found", code: "NOT_FOUND" }, { status: 404 });
+
     const patch: Record<string, unknown> = {};
     for (const k of PATCHABLE) {
       if (k in body) patch[k] = body[k];
     }
     patch.updatedAt = new Date().toISOString();
+
+    const shouldReset = Boolean(
+      body.resetChunks ||
+      (body.asrModel && body.asrModel !== existing.asrModel)
+    );
+
+    if (shouldReset) {
+      await db.update(chunks).set({ status: "WAITING", attempts: 0 }).where(eq(chunks.projectId, id));
+      await db.delete(subtitles).where(eq(subtitles.projectId, id));
+      patch.status = "pending";
+      patch.stage = "idle";
+      patch.progress = 0;
+      patch.completedChunks = 0;
+      patch.asrTimeSec = null;
+      patch.translationTimeSec = null;
+      patch.processingTimeSec = null;
+
+      // Invalidate transcription cache for this model so it re-runs fresh on GPU
+      const workDir = projectWorkDir(id);
+      const targetModel = String(body.asrModel || existing.asrModel || "small");
+      const cachePath = path.join(workDir, `transcription_cache_${targetModel}.json`);
+      if (fs.existsSync(cachePath)) {
+        try { fs.unlinkSync(cachePath); } catch {}
+      }
+    }
 
     const [project] = await db.update(projects).set(patch as any).where(eq(projects.id, id)).returning();
     if (!project) return NextResponse.json({ error: "Project not found", code: "NOT_FOUND" }, { status: 404 });

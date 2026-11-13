@@ -468,10 +468,22 @@ export default function Home({
           )}
 
           <div className="mt-3 flex flex-wrap items-center gap-2">
-            <Btn variant="primary" size="lg" icon="zap" onClick={() => {
-              const first = projects.find((p) => p.status === "pending" || p.status === "ready" || p.status === "paused");
-              if (!first) onToast("warn", "Add a file to the queue first.");
-              else start(first.id);
+            <Btn variant="primary" size="lg" icon="zap" onClick={async () => {
+              const pending = projects.find((p) => p.status === "pending" || p.status === "ready" || p.status === "paused");
+              if (pending) {
+                start(pending.id);
+                return;
+              }
+              const first = projects[0];
+              if (!first) {
+                onToast("warn", "Add a file to the queue first.");
+                return;
+              }
+              if (first.status === "completed") {
+                await patchProject(first.id, { resetChunks: true });
+                onRefresh();
+              }
+              start(first.id);
             }}>
               Generate
             </Btn>
@@ -551,8 +563,8 @@ export default function Home({
                           onChange={async (e) => {
                             const newModel = e.target.value;
                             try {
-                              await patchProject(p.id, { asrModel: newModel });
-                              onToast("ok", `Updated ${p.name} ASR model to ${modelById(newModel).name}`);
+                              await patchProject(p.id, { asrModel: newModel, resetChunks: true });
+                              onToast("ok", `Switched to ${modelById(newModel).name} (reset for fresh transcription)`);
                               onRefresh();
                             } catch (err: any) {
                               onToast("err", `Failed updating model: ${err.message}`);
@@ -597,7 +609,22 @@ export default function Home({
                     {p.status === "paused" && <Btn size="sm" variant="primary" icon="play" onClick={() => start(p.id)}>Resume</Btn>}
                     {p.status === "cancelled" && <Btn size="sm" variant="primary" icon="refresh" onClick={() => start(p.id)}>Resume</Btn>}
                     {p.status === "completed" && <Btn size="sm" variant="primary" icon="gear" onClick={() => onEdit(p.id)}>Edit</Btn>}
-                    {p.status === "completed" && <Btn size="sm" icon="refresh" title="Re-run (skips completed chunks)" onClick={() => start(p.id)} />}
+                    {p.status === "completed" && (
+                      <Btn
+                        size="sm"
+                        icon="refresh"
+                        title="Re-transcribe fresh with selected model"
+                        onClick={async () => {
+                          try {
+                            await patchProject(p.id, { resetChunks: true });
+                            onRefresh();
+                            start(p.id);
+                          } catch (err: any) {
+                            onToast("err", err.message || "Failed to reset project");
+                          }
+                        }}
+                      />
+                    )}
                     {p.status !== "processing" ? (
                       confirmDel === p.id ? (
                         <>

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { GlossaryRow, Project, QualityReport, SubLine, StudioSettings } from "@/lib/types";
-import { langFlag, langName, modelById } from "@/lib/types";
+import { langFlag, langName, modelById, TARGET_LANGS } from "@/lib/types";
 import { fmtClock, fmtMs, parseTimeStr } from "@/lib/time";
 import { runQuality } from "@/lib/quality";
 import {
@@ -24,6 +24,7 @@ import {
   fetchGlossary,
   fetchProject,
   mediaUrl,
+  patchProject,
   saveSubtitles,
   translateTexts,
   type ProjectDetail,
@@ -124,6 +125,8 @@ export default function Editor({
   const [saveState, setSaveState] = useState<"saved" | "dirty" | "saving">("saved");
   const [burning, setBurning] = useState(false);
   const [translatingWithOpus, setTranslatingWithOpus] = useState(false);
+  const [transEngine, setTransEngine] = useState<string>(project.translationModel || "nllb");
+  const [transTargetLang, setTransTargetLang] = useState<string>(project.targetLang === "original" ? "en" : (project.targetLang || "en"));
   const [burnUrl, setBurnUrl] = useState<string | null>(null);
   const [renameOpen, setRenameOpen] = useState(false);
   const [renameFrom, setRenameFrom] = useState("");
@@ -427,20 +430,21 @@ export default function Editor({
     onToast("ok", `Exported ${lines.length} subtitles as .${ext}`);
   };
 
-  const translateAllWithOpus = async () => {
+  const translateAll = async () => {
     if (lines.length === 0) return;
     setTranslatingWithOpus(true);
     try {
       const srcTexts = lines.map((l) => l.original || l.translation);
       const effectiveLang = p.sourceLang === "auto" ? (langs[0] || "ja") : p.sourceLang;
-      const translations = await translateTexts(srcTexts, effectiveLang, "en");
+      const translations = await translateTexts(srcTexts, effectiveLang, transTargetLang, transEngine);
       mutate((ls) =>
         ls.map((l, idx) => ({
           ...l,
           translation: translations[idx] || l.translation,
         }))
       );
-      onToast("ok", "Re-translated all lines with local OPUS-MT model!");
+      await patchProject(p.id, { targetLang: transTargetLang, translationModel: transEngine });
+      onToast("ok", `Re-translated ${lines.length} lines with ${transEngine.toUpperCase()} to ${langName(transTargetLang)}!`);
     } catch (e) {
       onToast("err", e instanceof Error ? e.message : "Translation error");
     } finally {
@@ -554,9 +558,39 @@ export default function Editor({
             ASS
           </Btn>
           <Btn icon="save" onClick={() => void save()}>Save</Btn>
-          <Btn icon="spark" onClick={translateAllWithOpus} disabled={translatingWithOpus}>
-            {translatingWithOpus ? "Translating with OPUS..." : "Re-translate with Local OPUS"}
-          </Btn>
+          <div className="flex items-center gap-1 bg-neutral-900 border border-neutral-700 rounded-lg px-2 py-0.5">
+            <select
+              className="bg-transparent text-[0.72rem] text-teal-300 font-medium focus:outline-none cursor-pointer"
+              value={transTargetLang}
+              onChange={(e) => setTransTargetLang(e.target.value)}
+              title="Target Language"
+            >
+              {TARGET_LANGS.map((tl) => (
+                <option key={tl.code} value={tl.code} className="bg-neutral-900 text-white">
+                  {tl.flag} {tl.name}
+                </option>
+              ))}
+            </select>
+            <select
+              className="bg-transparent text-[0.7rem] text-neutral-400 font-mono focus:outline-none cursor-pointer border-l border-neutral-700 pl-1.5"
+              value={transEngine}
+              onChange={(e) => setTransEngine(e.target.value)}
+              title="Translation Engine"
+            >
+              <option value="nllb" className="bg-neutral-900 text-white">NLLB (GPU)</option>
+              <option value="opus" className="bg-neutral-900 text-white">OPUS</option>
+            </select>
+            <Btn
+              size="sm"
+              variant="primary"
+              icon="spark"
+              onClick={translateAll}
+              disabled={translatingWithOpus}
+              className="!py-0.5 !px-2 !text-[0.72rem]"
+            >
+              {translatingWithOpus ? "Translating…" : "Translate"}
+            </Btn>
+          </div>
           <Btn icon="gauge" onClick={runQ}>Run quality check</Btn>
           <span className="ml-auto hidden items-center gap-1.5 text-[0.68rem] sm:flex" style={{ color: "var(--faint)" }}>
             <Kbd>Ctrl Z</Kbd> undo · <Kbd>Ctrl F</Kbd> search · <Kbd>←</Kbd><Kbd>→</Kbd> prev/next in preview
