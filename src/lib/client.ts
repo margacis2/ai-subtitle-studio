@@ -45,10 +45,14 @@ async function parse<T>(res: Response): Promise<T> {
 }
 
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
+  const token = typeof window !== "undefined" ? localStorage.getItem("studio_auth_token") : null;
+  const devId = typeof window !== "undefined" ? localStorage.getItem("studio_device_id") : null;
   const res = await fetch(path, {
     ...init,
     headers: {
       ...(init?.body && !(init.body instanceof FormData) ? { "Content-Type": "application/json" } : {}),
+      ...(token ? { "x-studio-token": token } : {}),
+      ...(devId ? { "x-device-id": devId } : {}),
       ...init?.headers,
     },
   });
@@ -195,6 +199,11 @@ export function uploadProjectWithProgress(
 
     const xhr = new XMLHttpRequest();
     xhr.open("POST", "/api/projects");
+
+    const token = typeof window !== "undefined" ? localStorage.getItem("studio_auth_token") : null;
+    if (token) xhr.setRequestHeader("x-studio-token", token);
+    const devId = typeof window !== "undefined" ? localStorage.getItem("studio_device_id") : null;
+    if (devId) xhr.setRequestHeader("x-device-id", devId);
 
     const startTime = Date.now();
 

@@ -95,13 +95,20 @@ if exist "%~dp0cloudflared.exe" (
 echo.
 
 :: 5. Create backend .env from example if missing
-echo [5/5] Configuring environment files...
+echo [5/6] Configuring environment files...
 if not exist "%~dp0backend\.env" (
     if exist "%~dp0backend\.env.example" (
         copy "%~dp0backend\.env.example" "%~dp0backend\.env" >nul
         echo [OK] Created backend\.env from template.
     )
 )
+echo.
+
+:: 6. Configure Windows Defender Firewall for LAN access (ports 3000 & 8001)
+echo [6/6] Configuring Windows Firewall rules for Wi-Fi / LAN multi-device access...
+netsh advfirewall firewall add rule name="AI Subtitle Studio Web (3000)" dir=in action=allow protocol=TCP localport=3000 profile=any >nul 2>nul
+netsh advfirewall firewall add rule name="AI Subtitle Studio Engine (8001)" dir=in action=allow protocol=TCP localport=8001 profile=any >nul 2>nul
+echo [OK] Inbound firewall ports 3000 & 8001 configured.
 
 echo.
 echo =====================================================================

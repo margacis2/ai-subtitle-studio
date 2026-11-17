@@ -218,7 +218,15 @@ export default function Home({
           onDragOver={(e) => { e.preventDefault(); setDrag(true); }}
           onDragLeave={() => setDrag(false)}
           onDrop={(e) => { e.preventDefault(); setDrag(false); void addFiles(e.dataTransfer.files); }}
-          className="panel flex flex-col items-center gap-3 px-4 py-8 sm:px-6 sm:py-10 text-center transition-colors"
+          onClick={(e) => {
+            // If user clicked the dropzone container itself on mobile/desktop, trigger file picker
+            if (!busy && !uploadProgress && e.target === e.currentTarget) {
+              fileRef.current?.click();
+            }
+          }}
+          className={`panel flex flex-col items-center gap-3 px-4 py-8 sm:px-6 sm:py-10 text-center transition-colors ${
+            !busy && !uploadProgress ? "cursor-pointer" : ""
+          }`}
           style={{ borderColor: drag ? "var(--accent)" : "var(--line)", background: drag ? "var(--accent-soft)" : "var(--bg2)" }}
         >
           {uploadProgress ? (
@@ -252,15 +260,13 @@ export default function Home({
                 </div>
               </div>
               <div className="flex flex-wrap items-center justify-center gap-2">
-                <Btn
-                  variant="primary"
-                  icon="folder"
-                  onClick={() => fileRef.current?.click()}
-                  disabled={busy}
-                  className="!min-h-[46px] !px-6 !text-sm !font-semibold shadow-md active:scale-95 transition-transform"
+                <label
+                  htmlFor="media-file-input"
+                  className="btn btn-primary !min-h-[46px] !px-6 !text-sm !font-semibold shadow-md active:scale-95 transition-transform cursor-pointer inline-flex items-center gap-2 select-none"
                 >
-                  {busy ? "Uploading file…" : "Select from device"}
-                </Btn>
+                  <Icon name="folder" size={16} />
+                  <span>{busy ? "Uploading file…" : "Select from device"}</span>
+                </label>
                 <span className="hidden sm:inline-flex">
                   <Kbd>Ctrl + O</Kbd>
                 </span>
@@ -272,13 +278,15 @@ export default function Home({
             </>
           )}
           <input
+            id="media-file-input"
             ref={fileRef}
             type="file"
             accept="video/*,audio/*,.mp4,.mkv,.mov,.avi,.webm,.m4a,.mp3,.wav,.flac,.ogg,.opus,.ts,.3gp,.3gpp,.aac,.amr,.m4b"
             multiple
-            className="hidden"
+            className="sr-only"
+            disabled={busy}
             onChange={(e) => {
-              if (e.target.files) void addFiles(e.target.files);
+              if (e.target.files && e.target.files.length > 0) void addFiles(e.target.files);
               e.target.value = "";
             }}
           />

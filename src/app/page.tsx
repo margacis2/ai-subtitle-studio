@@ -20,7 +20,7 @@ import ProcessingHistoryView from "@/components/ProcessingHistoryView";
 import AboutView from "@/components/AboutView";
 import AudioDiagnosticsModal from "@/components/AudioDiagnosticsModal";
 import { RemoteAccessView } from "@/components/RemoteAccessView";
-import { sendHeartbeat, getOrCreateDeviceId } from "@/lib/remoteClient";
+import { sendHeartbeat, getOrCreateDeviceId, verifyPin } from "@/lib/remoteClient";
 import { Btn } from "@/components/ui";
 import { Icon, IconName } from "@/components/icons";
 
@@ -100,6 +100,10 @@ export default function Page() {
   const [diagOpen, setDiagOpen] = useState(false);
   const [benchmarks, setBenchmarksState] = useState<BenchmarkRow[]>([]);
   const [customPresets, setCustomPresetsState] = useState<Preset[]>([]);
+  const [pinPromptOpen, setPinPromptOpen] = useState(false);
+  const [pinValue, setPinValue] = useState("");
+  const [pinError, setPinError] = useState<string | null>(null);
+  const [deviceBlocked, setDeviceBlocked] = useState(false);
 
   /* Navigation History handlers */
   const navigateTo = useCallback((newView: View | string) => {
@@ -240,13 +244,44 @@ export default function Page() {
   useEffect(() => {
     const devId = getOrCreateDeviceId();
     const taskName = active ? `${active.status}: ${active.name}` : `Viewing ${view}`;
-    sendHeartbeat(devId, taskName).catch(() => {});
-    const interval = setInterval(() => {
-      const curTask = active ? `${active.status}: ${active.name}` : `Viewing ${view}`;
-      sendHeartbeat(devId, curTask).catch(() => {});
-    }, 20000);
+    const runHeartbeat = async () => {
+      try {
+        const res = await sendHeartbeat(devId, taskName);
+        if (res?.device?.is_blocked) {
+          setDeviceBlocked(true);
+        } else {
+          setDeviceBlocked(false);
+        }
+        if (res?.pin_required) {
+          const token = typeof window !== "undefined" ? localStorage.getItem("studio_auth_token") : null;
+          if (!token) setPinPromptOpen(true);
+        } else {
+          setPinPromptOpen(false);
+        }
+      } catch {}
+    };
+    void runHeartbeat();
+    const interval = setInterval(runHeartbeat, 15000);
     return () => clearInterval(interval);
   }, [view, active]);
+
+  const handleUnlockPin = async () => {
+    if (!pinValue.trim()) return;
+    setPinError(null);
+    try {
+      const res = await verifyPin(pinValue.trim());
+      if (res.ok && res.token) {
+        localStorage.setItem("studio_auth_token", res.token);
+        setPinPromptOpen(false);
+        toast("ok", "Device authenticated successfully");
+        void refresh();
+      } else {
+        setPinError("Invalid PIN code. Please check with the PC host.");
+      }
+    } catch (e: any) {
+      setPinError(e.message || "Failed to verify PIN");
+    }
+  };
 
   const startProject = useCallback(
     (id: string) => {
@@ -344,7 +379,7 @@ export default function Page() {
   ];
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-[var(--bg)] text-[var(--ink)]">
+    <div className="flex h-[100dvh] w-full min-h-[100dvh] overflow-hidden bg-[var(--bg)] text-[var(--ink)]">
       {/* Collapsible Left Sidebar (Desktop) */}
       <aside
         className={`hidden lg:flex flex-col border-r transition-all duration-200 select-none shrink-0 z-30 ${
@@ -845,6 +880,60 @@ export default function Page() {
         open={diagOpen}
         onClose={() => setDiagOpen(false)}
       />
+
+      {/* Device Blocked Screen */}
+      {deviceBlocked && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-md p-4">
+          <div className="max-w-md w-full p-6 rounded-2xl bg-neutral-900 border border-red-500/40 text-center space-y-4 shadow-2xl">
+            <div className="w-14 h-14 mx-auto rounded-2xl bg-red-500/10 border border-red-500/30 flex items-center justify-center text-red-400 text-2xl">
+              🚫
+            </div>
+            <h3 className="text-lg font-bold text-white">Access Disconnected</h3>
+            <p className="text-xs text-neutral-300 leading-relaxed">
+              This device has been blocked or disconnected by the host computer. Please contact the administrator of the Windows PC host to regain access.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Remote PIN Authentication Modal */}
+      {pinPromptOpen && !deviceBlocked && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-md p-4 animate-in fade-in">
+          <div className="max-w-sm w-full p-6 rounded-2xl bg-neutral-900 border border-cyan-500/40 text-center space-y-4 shadow-2xl">
+            <div className="w-12 h-12 mx-auto rounded-2xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400 text-xl font-bold">
+              🔐
+            </div>
+            <div>
+              <h3 className="text-base font-bold text-white">Security PIN Required</h3>
+              <p className="text-xs text-neutral-400 mt-1">
+                Enter the 4-digit security PIN set on the Windows host to access AI Subtitle Studio.
+              </p>
+            </div>
+            <div className="space-y-2">
+              <input
+                type="password"
+                maxLength={8}
+                value={pinValue}
+                onChange={(e) => setPinValue(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") void handleUnlockPin(); }}
+                placeholder="Enter PIN"
+                autoFocus
+                className="w-full px-4 py-3 rounded-xl bg-neutral-950 border border-neutral-700 text-center font-mono text-lg tracking-widest text-cyan-300 focus:outline-none focus:border-cyan-400"
+              />
+              {pinError && (
+                <div className="text-xs text-red-400 font-medium">{pinError}</div>
+              )}
+            </div>
+            <Btn
+              variant="primary"
+              onClick={handleUnlockPin}
+              className="w-full !py-2.5 !text-sm font-semibold !bg-cyan-600 hover:!bg-cyan-500 text-white"
+            >
+              Unlock Studio
+            </Btn>
+          </div>
+        </div>
+      )}
 
       {/* Toasts */}
       <div className="pointer-events-none fixed bottom-4 right-4 z-50 flex w-[min(92vw,380px)] flex-col gap-2">

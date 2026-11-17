@@ -171,6 +171,8 @@ body {
     transition: background 0.15s, border-color 0.15s, transform 0.05s;
     user-select: none;
     white-space: nowrap;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
   }
   .btn:hover:not(:disabled) {
     background: var(--bg4);
