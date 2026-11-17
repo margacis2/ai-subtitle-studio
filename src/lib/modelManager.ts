@@ -19,6 +19,7 @@ export function recommend(
   hw: HardwareInfo | null,
   mode: string,
   durationSec: number,
+  sourceLang?: string,
 ): Recommendation {
   const cores = hw?.cpuCores || 4;
   const ram = hw?.ramGb || 8;
@@ -37,14 +38,25 @@ export function recommend(
   let computeType = "int8";
   let reason: string;
 
-  if (mode === "fast") {
-    const fast = ASR_MODELS.filter((m) => m.id === "sensevoice" || m.id === "tiny" || m.id === "small");
-    model = fast.find((m) => (cuda ? fitsOnGpu(m) : true)) ?? ASR_MODELS[2];
-  } else if (mode === "high") {
-    model = (cuda ? candidates.find(fitsOnGpu) : null) ?? null;
-  } else {
-    // balanced: best model that fits
-    model = (cuda ? candidates.find(fitsOnGpu) : null) ?? null;
+  const isTamil = sourceLang && (sourceLang.toLowerCase().startsWith("ta") || sourceLang.toLowerCase() === "tamil");
+
+  if (isTamil && mode !== "fast") {
+    const tamilModel = ASR_MODELS.find((m) => m.id === "whisper-tamil-medium");
+    if (tamilModel && (cuda ? fitsOnGpu(tamilModel) : true)) {
+      model = tamilModel;
+    }
+  }
+
+  if (!model) {
+    if (mode === "fast") {
+      const fast = ASR_MODELS.filter((m) => m.id === "sensevoice" || m.id === "tiny" || m.id === "small");
+      model = fast.find((m) => (cuda ? fitsOnGpu(m) : true)) ?? ASR_MODELS[2];
+    } else if (mode === "high") {
+      model = (cuda ? candidates.find(fitsOnGpu) : null) ?? null;
+    } else {
+      // balanced: best model that fits
+      model = (cuda ? candidates.find(fitsOnGpu) : null) ?? null;
+    }
   }
   if (!model) {
     model = cuda ? (candidates.find((m) => m.vramGb <= 2) ?? ASR_MODELS[2]) : ASR_MODELS[2];

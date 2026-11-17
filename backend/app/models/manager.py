@@ -57,6 +57,32 @@ AVAILABLE_WHISPER_MODELS: Dict[str, Dict[str, Any]] = {
         "accuracy": "Very High",
         "description": "Ideal for complex multilingual audio, Indian languages (Tamil, Hindi), and accents."
     },
+    "whisper-tamil-medium": {
+        "id": "whisper-tamil-medium",
+        "name": "Whisper Tamil Medium (Vasista22 / IIT Madras)",
+        "repo_id": "mohankumars26/whisper-tamil-medium-ct2",
+        "original_repo": "vasista22/whisper-tamil-medium",
+        "family": "whisper",
+        "size_mb": 740,
+        "vram_gb": 2.2,
+        "ram_gb": 4.0,
+        "speed": "SOTA Tamil (0.7x)",
+        "accuracy": "State of the Art (DravidianLangTech #1)",
+        "description": "Vasista22 763M parameter fine-tune funded by Bhashini/MeitY at IIT Madras Speech Lab. Winner of DravidianLangTech shared task for Tamil ASR."
+    },
+    "vasista22/whisper-tamil-medium": {
+        "id": "vasista22/whisper-tamil-medium",
+        "name": "Whisper Tamil Medium (Vasista22 / IIT Madras)",
+        "repo_id": "mohankumars26/whisper-tamil-medium-ct2",
+        "original_repo": "vasista22/whisper-tamil-medium",
+        "family": "whisper",
+        "size_mb": 740,
+        "vram_gb": 2.2,
+        "ram_gb": 4.0,
+        "speed": "SOTA Tamil (0.7x)",
+        "accuracy": "State of the Art (DravidianLangTech #1)",
+        "description": "Vasista22 763M parameter fine-tune funded by Bhashini/MeitY at IIT Madras Speech Lab. Winner of DravidianLangTech shared task for Tamil ASR."
+    },
     "turbo": {
         "id": "turbo",
         "name": "Whisper Large-v3-Turbo",

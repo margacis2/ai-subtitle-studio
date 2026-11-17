@@ -128,6 +128,17 @@ export const ASR_MODELS: AsrModelOption[] = [
     params: "769M",
   },
   {
+    id: "whisper-tamil-medium",
+    name: "Whisper Tamil Medium (Vasista22 / IIT Madras)",
+    family: "whisper",
+    vramGb: 2.2,
+    ramGb: 4.0,
+    speedFactor: 0.70,
+    accuracy: "SOTA Tamil (DravidianLangTech #1)",
+    note: "~2.2 GB VRAM · Vasista22 763M fine-tune (Bhashini/MeitY at IIT Madras) · #1 for Tamil",
+    params: "763M",
+  },
+  {
     id: "turbo",
     name: "Faster-Whisper Large-v3-Turbo",
     family: "whisper",
@@ -227,6 +238,9 @@ export function modelById(id: string): AsrModelOption {
   }
   if (id === "large") {
     return ASR_MODELS.find((m) => m.id === "large-v3") ?? ASR_MODELS[2];
+  }
+  if (id === "whisper-tamil-medium" || id === "vasista22/whisper-tamil-medium" || id === "tamil-medium") {
+    return ASR_MODELS.find((m) => m.id === "whisper-tamil-medium") ?? ASR_MODELS[2];
   }
   return ASR_MODELS.find((m) => m.id === id) ?? ASR_MODELS[2];
 }

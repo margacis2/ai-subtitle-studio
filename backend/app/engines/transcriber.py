@@ -62,6 +62,8 @@ def get_whisper_engine(
         resolved_id = "turbo"
     elif clean_id in ("large", "large-v3"):
         resolved_id = "large-v3"
+    elif clean_id in ("whisper-tamil-medium", "vasista22/whisper-tamil-medium", "tamil-medium"):
+        resolved_id = "mohankumars26/whisper-tamil-medium-ct2"
     else:
         resolved_id = clean_id
 
@@ -113,7 +115,11 @@ def get_whisper_engine(
             if compute_type not in ("auto", "", None):
                 computes = [compute_type]
             else:
-                computes = ["float16", "int8_float16", "int8"]
+                vram_gb = float(hw.get("vram_gb") or 0)
+                if 0 < vram_gb < 6.0:
+                    computes = ["int8_float16", "int8", "float16"]
+                else:
+                    computes = ["float16", "int8_float16", "int8"]
 
             for comp in computes:
                 try:
@@ -184,14 +190,27 @@ def transcribe_audio_file(
     if not os.path.exists(audio_path):
         raise FileNotFoundError(f"Audio file not found: {audio_path}")
 
+    clean_id = (model_id or "small").strip()
+    if clean_id in ("turbo", "large-v3-turbo"):
+        resolved_id = "turbo"
+    elif clean_id in ("large", "large-v3"):
+        resolved_id = "large-v3"
+    elif clean_id in ("whisper-tamil-medium", "vasista22/whisper-tamil-medium", "tamil-medium"):
+        resolved_id = "mohankumars26/whisper-tamil-medium-ct2"
+    else:
+        resolved_id = clean_id
+
     model = get_whisper_engine(
-        model_id=model_id,
+        model_id=resolved_id,
         preferred_device=preferred_device,
         compute_type=compute_type,
         workers=workers
     )
 
+    is_tamil_model = resolved_id == "mohankumars26/whisper-tamil-medium-ct2" or "tamil" in clean_id.lower()
     lang = None if not source_lang or source_lang.lower() in ("auto", "") else source_lang.lower().split("-")[0]
+    if is_tamil_model and (not lang or lang == "auto"):
+        lang = "ta"
 
     t0 = time.time()
     raw_segments = []
@@ -215,7 +234,7 @@ def transcribe_audio_file(
         threads = max(2, (os.cpu_count() or 4) // 2)
         from faster_whisper import WhisperModel
         cpu_model = WhisperModel(
-            model_id,
+            resolved_id,
             device="cpu",
             compute_type="int8",
             cpu_threads=threads,
