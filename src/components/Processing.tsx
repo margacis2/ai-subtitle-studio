@@ -194,9 +194,30 @@ export default function Processing({
       setDetail((d) =>
         d ? { ...d, chunks: d.chunks.map((x) => (x.id === c.id ? { ...x, status: "PROCESSING" } : x)) } : d,
       );
-      try {
-        const res = await processChunk(initial.id, c.id, model.speedFactor);
-        const segs: LiveSegment[] = res.segments.map((s) => ({
+
+      let res: any = null;
+      let lastErr: any = null;
+
+      for (let attempt = 0; attempt < 3; attempt++) {
+        if (stopRef.current || pauseRef.current) break;
+        try {
+          if (attempt > 0) {
+            logEv("wait", `Retrying Chunk ${name} (attempt ${attempt + 1}/3)...`);
+            await sleep(1500 * attempt);
+          }
+          res = await processChunk(initial.id, c.id, model.speedFactor);
+          lastErr = null;
+          break;
+        } catch (e: any) {
+          lastErr = e;
+          const msg = e instanceof ApiError ? e.message : e instanceof Error ? e.message : String(e);
+          const isPermanent = (e instanceof ApiError && (e.status === 404 || !e.retryable)) || msg.includes("not found");
+          if (isPermanent) break;
+        }
+      }
+
+      if (res) {
+        const segs: LiveSegment[] = res.segments.map((s: any) => ({
           chunkIndex: c.index,
           startMs: s.startMs,
           lang: s.lang,
@@ -211,13 +232,13 @@ export default function Processing({
           `Chunk ${name} — ${langFlag(res.language)} ${langName(res.language)} · ${res.confidence}% conf · ${res.segments.length} lines${res.overlapRemoved > 0 ? ` · ${res.overlapRemoved} overlap dups removed` : ""}`,
         );
         if (res.note) logEv("warn", res.note);
-      } catch (e) {
-        const msg = e instanceof ApiError ? e.message : e instanceof Error ? e.message : String(e);
-        if (e instanceof ApiError && e.code === "CANCELLED") {
+      } else if (lastErr) {
+        const msg = lastErr instanceof ApiError ? lastErr.message : lastErr instanceof Error ? lastErr.message : String(lastErr);
+        if (lastErr instanceof ApiError && lastErr.code === "CANCELLED") {
           /* handled by cancel flow */
         } else {
           logEv("err", `Chunk ${name} failed — ${msg}`);
-          const isPermanent = (e instanceof ApiError && (e.status === 404 || !e.retryable)) || msg.includes("not found");
+          const isPermanent = (lastErr instanceof ApiError && (lastErr.status === 404 || !lastErr.retryable)) || msg.includes("not found");
           setDetail((prev) =>
             prev
               ? {
@@ -294,9 +315,10 @@ export default function Processing({
         while (pauseRef.current && !stopRef.current) await sleep(400);
         if (stopRef.current) break;
         d = await refresh();
-        const ready = d.chunks.filter((c) => c.status === "WAITING" || (c.status === "FAILED" && c.attempts < 2));
+        const ready = d.chunks.filter((c) => c.status === "WAITING" || (c.status === "FAILED" && c.attempts < 3));
         if (ready.length === 0) break;
-        const n = Math.min(Math.max(1, d.project.workers), ready.length);
+        const maxWorkers = p.device === "cpu" ? Math.min(2, Math.max(1, d.project.workers)) : 1;
+        const n = Math.min(maxWorkers, ready.length);
         if (ready.length > n) logEv("wait", `${ready.length - n} chunks waiting for a worker slot…`);
         await Promise.all(ready.slice(0, n).map((c) => dispatch(c)));
       }

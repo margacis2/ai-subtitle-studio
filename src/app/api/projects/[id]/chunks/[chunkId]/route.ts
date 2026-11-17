@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
-import { and, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, gte, lte } from "drizzle-orm";
 import fs from "node:fs";
 import path from "node:path";
 import { db } from "@/db";
 import { projects, chunks, subtitles } from "@/db/schema";
 import { toChunk } from "@/lib/rows";
+import { extractAudioChunk } from "@/lib/audio";
 import {
   log,
   newId,
@@ -21,6 +22,8 @@ type Params = { params: Promise<{ id: string; chunkId: string }> };
 
 export async function POST(req: Request, { params }: Params) {
   const { id, chunkId } = await params;
+  const startTime = Date.now();
+
   const [project] = await db.select().from(projects).where(eq(projects.id, id));
   if (!project) {
     return NextResponse.json(
@@ -48,17 +51,24 @@ export async function POST(req: Request, { params }: Params) {
     );
   }
 
+  const requestedModel = project.asrModel === "auto" ? "small" : project.asrModel || "small";
+  log(
+    `[CHUNK START] project=${id} chunk=${chunkId} index=${chunk.index}/${project.totalChunks} time=${chunk.startSec.toFixed(1)}s-${chunk.endSec.toFixed(1)}s attempt=${chunk.attempts + 1} model=${requestedModel} device=${project.device}`
+  );
+
   await db
     .update(chunks)
     .set({ status: "PROCESSING", attempts: chunk.attempts + 1 })
     .where(eq(chunks.id, chunkId));
 
+  const workDir = projectWorkDir(id);
+  const chunkAudioPath = path.join(workDir, `chunk_${String(chunk.index).padStart(3, "0")}.wav`);
+
   try {
     const uploadDir = projectUploadDir(id);
-    const workDir = projectWorkDir(id);
     const origPath = path.join(uploadDir, project.fileName);
 
-    // Prefer pre-optimized audio under 100MB (WAV or MP3) if extracted, else fall back to original
+    // Prefer pre-optimized audio (WAV or MP3) if extracted, else fall back to original
     let sendPath = origPath;
     const optWav = path.join(workDir, "audio_optimized.wav");
     const optMp3 = path.join(workDir, "audio_optimized_opt.mp3");
@@ -73,109 +83,132 @@ export async function POST(req: Request, { params }: Params) {
     }
 
     if (!fs.existsSync(sendPath)) {
-      const err = `Audio source file not found on server at: ${sendPath}`;
-      throw new Error(err);
+      throw new Error(`Audio source file not found on server at: ${sendPath}`);
     }
 
-    const requestedModel = project.asrModel === "auto" ? "small" : project.asrModel || "small";
-    const cachePath = path.join(workDir, `transcription_cache_${requestedModel}.json`);
-    const legacyCachePath = path.join(workDir, "transcription_cache.json");
-    let data: any = null;
-
-    if (fs.existsSync(cachePath)) {
-      try {
-        data = JSON.parse(fs.readFileSync(cachePath, "utf-8"));
-      } catch {
-        data = null;
-      }
-    } else if (fs.existsSync(legacyCachePath)) {
-      try {
-        const legacy = JSON.parse(fs.readFileSync(legacyCachePath, "utf-8"));
-        if (legacy && legacy.model_id === requestedModel) {
-          data = legacy;
-        }
-      } catch {
-        data = null;
+    // 1. Ensure local Python AI backend is active
+    const engineUrl = getEngineUrl();
+    const isAlive = await isBackendAlive(engineUrl);
+    if (!isAlive) {
+      log(`[CHUNK] Launching backend: url=${engineUrl}`);
+      const started = await ensureBackendRunning();
+      if (!started) {
+        throw new Error(
+          `Python Faster-Whisper backend is offline at ${engineUrl}. Please start it using 'start.bat' or 'python -m backend.app.main'.`
+        );
       }
     }
 
-    if (!data) {
-      // 1. Ensure local Python AI backend is active
-      const engineUrl = getEngineUrl();
-      const isAlive = await isBackendAlive(engineUrl);
-      if (!isAlive) {
-        log(`transcribe.launching_backend url=${engineUrl}`);
-        const started = await ensureBackendRunning();
-        if (!started) {
-          throw new Error(
-            `Python AI backend is offline at ${engineUrl}. Please start it using 'python -m backend.app.main' or launch via 'npm run desktop:dev'.`
-          );
-        }
-      }
+    // 2. Extract exact audio chunk for this window (e.g. 0 to 600s, 600 to 1200s, etc.)
+    const durationSec = Math.max(0.1, chunk.endSec - chunk.startSec);
+    await extractAudioChunk(sendPath, chunkAudioPath, chunk.startSec, durationSec, 60000);
 
-      // 2. Prepare request payload
-      const formData = new FormData();
-      formData.append("source_lang", project.sourceLang || "auto");
-      formData.append("model_id", requestedModel);
-      formData.append("device", project.device || "auto");
-      formData.append("compute_type", project.computeType || "auto");
-      formData.append("workers", String(project.workers || 0));
-      formData.append("vad_filter", String(project.vadEnabled));
-      formData.append("word_timestamps", "true");
+    // 3. Prepare multipart payload for Faster-Whisper
+    const formData = new FormData();
+    formData.append("source_lang", project.sourceLang || "auto");
+    formData.append("model_id", requestedModel);
+    formData.append("device", project.device || "auto");
+    formData.append("compute_type", project.computeType || "auto");
+    formData.append("workers", "1"); // single worker for GPU inference
+    formData.append("vad_filter", String(project.vadEnabled));
+    formData.append("word_timestamps", "true");
 
-      if (fs.existsSync(sendPath)) {
-        formData.append("file_path", sendPath);
-      }
-      const fileBuffer = fs.readFileSync(sendPath);
-      const sendName = path.basename(sendPath);
-      formData.append("file", new Blob([fileBuffer]), sendName);
+    if (fs.existsSync(chunkAudioPath)) {
+      formData.append("file_path", chunkAudioPath);
+    }
+    const chunkBuffer = fs.readFileSync(chunkAudioPath);
+    formData.append("file", new Blob([chunkBuffer]), path.basename(chunkAudioPath));
 
-      const engineToken = getEngineToken();
-      const headers: Record<string, string> = {};
-      if (engineToken) {
-        headers["Authorization"] = `Bearer ${engineToken}`;
-      }
+    const engineToken = getEngineToken();
+    const headers: Record<string, string> = {};
+    if (engineToken) {
+      headers["Authorization"] = `Bearer ${engineToken}`;
+    }
 
-      const response = await fetch(`${engineUrl}/transcribe`, {
+    // 3-minute timeout per 10-minute chunk (abundant time for Faster-Whisper on CUDA/CPU)
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 180000);
+
+    let response: Response;
+    try {
+      response = await fetch(`${engineUrl}/transcribe`, {
         method: "POST",
         headers,
         body: formData,
+        signal: controller.signal,
       });
-
-      if (!response.ok) {
-        let errDetail = "";
-        try {
-          const j = await response.json();
-          errDetail = j.detail?.error || j.detail || j.error || j.message || "";
-        } catch {
-          errDetail = await response.text().catch(() => "");
-        }
-        throw new Error(
-          `Whisper backend returned status ${response.status}${errDetail ? `: ${typeof errDetail === "object" ? JSON.stringify(errDetail) : errDetail}` : ""}`
-        );
-      }
-
-      data = await response.json();
-      data.model_id = requestedModel;
-      try {
-        fs.writeFileSync(cachePath, JSON.stringify(data), "utf-8");
-      } catch {
-        // non-fatal cache write failure
-      }
+    } finally {
+      clearTimeout(timer);
     }
 
-    const primaryLang = data.language || project.sourceLang || "ja";
+    if (!response.ok) {
+      let errDetail = "";
+      try {
+        const j = await response.json();
+        errDetail = j.detail?.error || j.detail || j.error || j.message || "";
+      } catch {
+        errDetail = await response.text().catch(() => "");
+      }
+      throw new Error(
+        `Faster-Whisper returned status ${response.status}${errDetail ? `: ${typeof errDetail === "object" ? JSON.stringify(errDetail) : errDetail}` : ""}`
+      );
+    }
+
+    const data = await response.json();
+    const primaryLang = data.language || project.sourceLang || "en";
     const rawSegments = data.segments || [];
 
-    // Filter segments belonging to this chunk window
-    const chunkStartMs = Math.floor(chunk.startSec * 1000);
-    const chunkEndMs = Math.ceil(chunk.endSec * 1000);
-    const isFinalChunk = chunk.endSec >= (project.durationSec - 5) || (project.totalChunks <= 1);
+    // 4. Map chunk-relative timestamps to absolute project timeline
+    const chunkStartMs = Math.round(chunk.startSec * 1000);
+    const chunkEndMs = Math.round(chunk.endSec * 1000);
 
-    const segments = rawSegments.filter(
-      (s: any) => s.startMs >= chunkStartMs - 1200 && (isFinalChunk || s.startMs < chunkEndMs)
-    );
+    const mappedSegments = rawSegments.map((s: any) => ({
+      startMs: chunkStartMs + s.startMs,
+      endMs: chunkStartMs + s.endMs,
+      speaker: s.speaker || null,
+      original: (s.original || s.text || "").trim(),
+      confidence: s.confidence || 90,
+      kind: "speech",
+    })).filter((s: any) => s.original.length > 0 && s.startMs < chunkEndMs);
 
+    // 5. Clean up any existing subtitles for this chunk window (handles retries cleanly)
+    await db
+      .delete(subtitles)
+      .where(
+        and(
+          eq(subtitles.projectId, id),
+          gte(subtitles.startMs, chunkStartMs),
+          lte(subtitles.startMs, chunkEndMs)
+        )
+      );
+
+    // 6. Overlap deduplication: inspect prior segments around boundary
+    const priorSubs = await db
+      .select()
+      .from(subtitles)
+      .where(and(eq(subtitles.projectId, id), lte(subtitles.startMs, chunkStartMs + 1000)))
+      .orderBy(desc(subtitles.startMs))
+      .limit(5);
+
+    let overlapRemoved = 0;
+    const finalSegments = mappedSegments.filter((s: any) => {
+      for (const p of priorSubs) {
+        if (
+          Math.abs(p.startMs - s.startMs) < 1500 &&
+          p.original.toLowerCase().trim() === s.original.toLowerCase().trim()
+        ) {
+          overlapRemoved++;
+          return false;
+        }
+        if (s.startMs >= p.startMs && s.endMs <= p.endMs && p.original.includes(s.original)) {
+          overlapRemoved++;
+          return false;
+        }
+      }
+      return true;
+    });
+
+    // 7. Insert subtitles into database
     const maxSeq = await db
       .select()
       .from(subtitles)
@@ -185,16 +218,16 @@ export async function POST(req: Request, { params }: Params) {
 
     const nextSeq = (maxSeq[0]?.seq ?? 0) + 1;
 
-    if (segments.length > 0) {
+    if (finalSegments.length > 0) {
       await db.insert(subtitles).values(
-        segments.map((s: any, i: number) => ({
+        finalSegments.map((s: any, i: number) => ({
           id: newId(),
           projectId: id,
           seq: nextSeq + i,
           startMs: s.startMs,
           endMs: s.endMs,
           speaker: s.speaker || null,
-          original: s.original || s.text || "",
+          original: s.original,
           translation: "", // Stage 1: pure original transcript
           confidence: s.confidence || 90,
           kind: "speech",
@@ -202,26 +235,24 @@ export async function POST(req: Request, { params }: Params) {
       );
     }
 
+    // 8. Mark chunk as COMPLETED
     const [updatedChunk] = await db
       .update(chunks)
       .set({
         status: "COMPLETED",
         language: primaryLang,
         confidence: 95,
-        overlapRemoved: 0,
-        durationMs: Math.round((chunk.endSec - chunk.startSec) * 1000),
+        overlapRemoved,
+        durationMs: Math.round(durationSec * 1000),
       })
       .where(eq(chunks.id, chunkId))
       .returning();
 
-    const doneRows = await db
-      .select()
-      .from(chunks)
-      .where(and(eq(chunks.projectId, id), eq(chunks.status, "COMPLETED")));
-
-    const completed = doneRows.length;
-    const total = project.totalChunks || 1;
-    const progress = Math.min(92, 8 + Math.round((84 * completed) / total));
+    // 9. Update overall project progress
+    const allChunks = await db.select().from(chunks).where(eq(chunks.projectId, id));
+    const completed = allChunks.filter((c) => c.status === "COMPLETED").length;
+    const total = allChunks.length || 1;
+    const progress = Math.min(95, 8 + Math.round((87 * completed) / total));
 
     await db
       .update(projects)
@@ -234,13 +265,36 @@ export async function POST(req: Request, { params }: Params) {
       })
       .where(eq(projects.id, id));
 
+    // 10. If final chunk finished, ensure sequential numbering across all subtitles
+    if (completed === total) {
+      const allSubs = await db
+        .select()
+        .from(subtitles)
+        .where(eq(subtitles.projectId, id))
+        .orderBy(asc(subtitles.startMs));
+
+      for (let idx = 0; idx < allSubs.length; idx++) {
+        if (allSubs[idx].seq !== idx + 1) {
+          await db
+            .update(subtitles)
+            .set({ seq: idx + 1 })
+            .where(eq(subtitles.id, allSubs[idx].id));
+        }
+      }
+    }
+
+    const elapsedSec = ((Date.now() - startTime) / 1000).toFixed(2);
+    log(
+      `[CHUNK OK] project=${id} chunk=${chunkId} index=${chunk.index} duration=${elapsedSec}s lines=${finalSegments.length} overlapRemoved=${overlapRemoved} lang=${primaryLang}`
+    );
+
     return NextResponse.json({
       chunk: toChunk(updatedChunk),
-      segments: segments.map((s: any) => ({
+      segments: finalSegments.map((s: any) => ({
         startMs: s.startMs,
         endMs: s.endMs,
         speaker: s.speaker || null,
-        original: s.original || s.text || "",
+        original: s.original,
         translation: "",
         confidence: s.confidence || 90,
         kind: "speech",
@@ -248,14 +302,19 @@ export async function POST(req: Request, { params }: Params) {
       })),
       language: primaryLang,
       confidence: 95,
-      overlapRemoved: 0,
-      durationMs: Math.round((chunk.endSec - chunk.startSec) * 1000),
+      overlapRemoved,
+      durationMs: Math.round(durationSec * 1000),
       note: null,
     });
   } catch (e: any) {
+    const elapsedSec = ((Date.now() - startTime) / 1000).toFixed(2);
     const msg = e instanceof Error ? e.message : String(e);
     await db.update(chunks).set({ status: "FAILED" }).where(eq(chunks.id, chunkId));
-    log(`chunk.failed project=${id} chunk=${chunkId} err="${msg}"`);
+
+    log(
+      `[CHUNK FAIL] project=${id} chunk=${chunkId} index=${chunk.index} attempt=${chunk.attempts + 1} duration=${elapsedSec}s error="${msg}"\n${e.stack || ""}`
+    );
+
     return NextResponse.json(
       {
         error: msg,
@@ -267,5 +326,14 @@ export async function POST(req: Request, { params }: Params) {
       },
       { status: 500 }
     );
+  } finally {
+    // 11. Clean up temporary sliced audio file
+    if (fs.existsSync(chunkAudioPath)) {
+      try {
+        fs.unlinkSync(chunkAudioPath);
+      } catch {
+        // non-fatal cleanup
+      }
+    }
   }
 }

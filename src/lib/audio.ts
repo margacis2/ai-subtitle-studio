@@ -451,3 +451,74 @@ export function wavExists(p: string): boolean {
 
 export const audioWorkPath = (dir: string, index: number) =>
   path.join(dir, `chunk_${String(index).padStart(3, "0")}.wav`);
+
+/**
+ * Extracts a specific time segment from source audio as 16kHz mono WAV for Whisper ASR.
+ * Highly optimized using fast seek (-ss before -i).
+ */
+export async function extractAudioChunk(
+  sourceAudioPath: string,
+  outChunkPath: string,
+  startSec: number,
+  durationSec: number,
+  timeoutMs = 60000
+): Promise<string> {
+  if (!fs.existsSync(sourceAudioPath)) {
+    throw new AudioProcessingError(
+      `Source audio not found: ${sourceAudioPath}`,
+      "FILE_NOT_FOUND",
+      "chunk_extraction"
+    );
+  }
+
+  const dir = path.dirname(outChunkPath);
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+
+  const start = Math.max(0, startSec);
+  const dur = Math.max(0.1, durationSec);
+
+  const args = [
+    "-y",
+    "-nostdin",
+    "-ss", start.toFixed(3),
+    "-t", dur.toFixed(3),
+    "-i", sourceAudioPath,
+    "-vn",
+    "-ac", "1",
+    "-ar", "16000",
+    "-acodec", "pcm_s16le",
+    "-f", "wav",
+    outChunkPath,
+  ];
+
+  const res = await runCommand(getFfmpegPath(), args, timeoutMs);
+  if (!res.ok || !fs.existsSync(outChunkPath) || fs.statSync(outChunkPath).size < 100) {
+    // Resilient fallback with post-input seek if pre-input seek encountered container index issues
+    const fallbackArgs = [
+      "-y",
+      "-nostdin",
+      "-i", sourceAudioPath,
+      "-ss", start.toFixed(3),
+      "-t", dur.toFixed(3),
+      "-vn",
+      "-ac", "1",
+      "-ar", "16000",
+      "-acodec", "pcm_s16le",
+      "-f", "wav",
+      outChunkPath,
+    ];
+    const fbRes = await runCommand(getFfmpegPath(), fallbackArgs, timeoutMs);
+    if (!fbRes.ok || !fs.existsSync(outChunkPath) || fs.statSync(outChunkPath).size < 100) {
+      throw new AudioProcessingError(
+        `Failed to slice audio chunk (${startSec}s to ${startSec + durationSec}s): ${res.stderr || fbRes.stderr}`,
+        "CHUNK_SLICE_FAILED",
+        "chunk_extraction",
+        true
+      );
+    }
+  }
+
+  return outChunkPath;
+}

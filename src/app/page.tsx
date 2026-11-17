@@ -638,7 +638,8 @@ export default function Page() {
 
             <div className="hidden sm:flex items-center gap-1">
               <button
-                disabled={!mounted || navIndex <= 0}
+                suppressHydrationWarning
+                disabled={navIndex <= 0}
                 onClick={navigateBack}
                 title="Go back"
                 className="p-1.5 rounded text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
@@ -646,7 +647,8 @@ export default function Page() {
                 <Icon name="arrow-left" size={15} />
               </button>
               <button
-                disabled={!mounted || navIndex >= navHistory.length - 1}
+                suppressHydrationWarning
+                disabled={navIndex >= navHistory.length - 1}
                 onClick={navigateForward}
                 title="Go forward"
                 className="p-1.5 rounded text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
