@@ -36,7 +36,10 @@ export function newId(): string {
 
 export function safeBaseName(name: string): string {
   const base = path.basename(name).replace(/[/\\]/g, "");
-  return base.length > 160 ? base.slice(0, 160) : base;
+  if (base.length <= 160) return base;
+  const ext = path.extname(base);
+  const stem = path.basename(base, ext);
+  return stem.slice(0, Math.max(1, 160 - ext.length)) + ext;
 }
 
 const ALLOWED_EXT = new Set([
@@ -67,12 +70,21 @@ export function humanBytes(n: number): string {
   return `${(n / 1073741824).toFixed(2)} GB`;
 }
 
+export function getLocalEngineUrl(): string {
+  const port = (process.env.STUDIO_PORT || "8001").trim() || "8001";
+  return `http://127.0.0.1:${port}`;
+}
+
+export function isRemoteEngine(): boolean {
+  return Boolean((process.env.COLAB_URL || process.env.REMOTE_ASR_URL || "").trim());
+}
+
 export function getEngineUrl(): string {
   const custom = process.env.COLAB_URL || process.env.REMOTE_ASR_URL;
   if (custom && custom.trim()) {
     return custom.trim().replace(/\/+$/, "");
   }
-  return "http://127.0.0.1:8001";
+  return getLocalEngineUrl();
 }
 
 export function getEngineToken(): string {
@@ -81,9 +93,10 @@ export function getEngineToken(): string {
 
 export async function isBackendAlive(url = getEngineUrl()): Promise<boolean> {
   try {
+    const isRemote = !url.includes("127.0.0.1") && !url.includes("localhost");
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 1500);
-    const res = await fetch(`${url}/health`, { signal: controller.signal });
+    const timer = setTimeout(() => controller.abort(), isRemote ? 5000 : 1500);
+    const res = await fetch(`${url}/health`, { signal: controller.signal, cache: "no-store" });
     clearTimeout(timer);
     return res.ok;
   } catch {
@@ -93,10 +106,15 @@ export async function isBackendAlive(url = getEngineUrl()): Promise<boolean> {
 
 let startingBackendPromise: Promise<boolean> | null = null;
 
-export async function ensureBackendRunning(): Promise<boolean> {
-  const url = getEngineUrl();
+export async function ensureBackendRunning(targetUrl = getEngineUrl()): Promise<boolean> {
+  const url = targetUrl;
+  const isRemote = !url.includes("127.0.0.1") && !url.includes("localhost");
   if (await isBackendAlive(url)) {
     return true;
+  }
+  // Never spawn local python when probing a remote Colab / WAN engine URL
+  if (isRemote) {
+    return false;
   }
 
   // If already launching, await existing startup
@@ -110,21 +128,38 @@ export async function ensureBackendRunning(): Promise<boolean> {
       const rootDir = process.cwd();
       let pythonExecutable = process.platform === "win32" ? "python" : "python3";
       if (process.platform === "win32") {
-        const userVenv = path.join(process.env.USERPROFILE || "", "venv", "Scripts", "python.exe");
-        const localVenv = path.join(rootDir, "venv", "Scripts", "python.exe");
-        const sysPy = "C:\\Python314\\python.exe";
-        if (fs.existsSync(userVenv)) {
-          pythonExecutable = userVenv;
-        } else if (fs.existsSync(localVenv)) {
-          pythonExecutable = localVenv;
-        } else if (fs.existsSync(sysPy)) {
-          pythonExecutable = sysPy;
+        const candidates = [
+          path.join(/*turbopackIgnore: true*/ rootDir, ".venv", "Scripts", "python.exe"),
+          path.join(/*turbopackIgnore: true*/ rootDir, "venv", "Scripts", "python.exe"),
+          path.join(/*turbopackIgnore: true*/ process.env.USERPROFILE || "", "venv", "Scripts", "python.exe"),
+          "C:\\Python314\\python.exe",
+        ];
+        for (const cand of candidates) {
+          if (fs.existsSync(cand)) {
+            pythonExecutable = cand;
+            break;
+          }
+        }
+      } else {
+        const candidates = [
+          path.join(/*turbopackIgnore: true*/ rootDir, ".venv", "bin", "python"),
+          path.join(/*turbopackIgnore: true*/ rootDir, "venv", "bin", "python"),
+        ];
+        for (const cand of candidates) {
+          if (fs.existsSync(cand)) {
+            pythonExecutable = cand;
+            break;
+          }
         }
       }
+      const extraPaths = [
+        rootDir,
+        ...(process.platform === "win32" ? ["C:\\ffmpeg", "C:\\ffmpeg\\bin"] : []),
+      ];
       const env = {
         ...process.env,
         STUDIO_PORT: "8001",
-        PATH: rootDir + path.delimiter + (process.env.PATH || ""),
+        PATH: extraPaths.join(path.delimiter) + path.delimiter + (process.env.PATH || ""),
       };
 
       log("backend.auto_spawning command=python -m backend.app.main");
@@ -155,5 +190,42 @@ export async function ensureBackendRunning(): Promise<boolean> {
 
   return startingBackendPromise;
 }
+
+/**
+ * Verify remote device access (PIN protection & device blocklist) via FastAPI backend.
+ * Fails open only if backend is unreachable on local loopback requests.
+ */
+export async function checkRemoteAccess(req: Request): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
+  const token = req.headers.get("x-studio-token") || "";
+  const deviceId = req.headers.get("x-device-id") || "";
+  // Remote device PIN / blocklist state lives ONLY on the local host Python backend, never on Colab.
+  const localUrl = getLocalEngineUrl();
+
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 1500);
+    const res = await fetch(`${localUrl}/remote/auth/validate`, {
+      method: "GET",
+      headers: {
+        ...(token ? { "x-studio-token": token } : {}),
+        ...(deviceId ? { "x-device-id": deviceId } : {}),
+      },
+      signal: controller.signal,
+      cache: "no-store",
+    });
+    clearTimeout(timer);
+
+    if (res.ok) return { ok: true };
+    const body = await res.json().catch(() => ({}));
+    return {
+      ok: false,
+      status: res.status,
+      error: body?.detail || body?.error || (res.status === 403 ? "Device blocked by host" : "Security PIN required"),
+    };
+  } catch {
+    return { ok: true };
+  }
+}
+
 
 

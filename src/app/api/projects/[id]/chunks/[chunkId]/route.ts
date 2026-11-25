@@ -2,10 +2,12 @@ import { NextResponse } from "next/server";
 import { and, asc, desc, eq, gte, lte } from "drizzle-orm";
 import fs from "node:fs";
 import path from "node:path";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { db } from "@/db";
 import { projects, chunks, subtitles } from "@/db/schema";
 import { toChunk } from "@/lib/rows";
-import { extractAudioChunk } from "@/lib/audio";
+import { extractAudioChunk, getFfmpegPath } from "@/lib/audio";
 import {
   log,
   newId,
@@ -13,14 +15,22 @@ import {
   projectWorkDir,
   getEngineUrl,
   getEngineToken,
+  isRemoteEngine,
   ensureBackendRunning,
   isBackendAlive,
+  checkRemoteAccess,
 } from "@/lib/server";
+
+const execFileAsync = promisify(execFile);
 
 export const runtime = "nodejs";
 type Params = { params: Promise<{ id: string; chunkId: string }> };
 
 export async function POST(req: Request, { params }: Params) {
+  const auth = await checkRemoteAccess(req);
+  if (!auth.ok) {
+    return NextResponse.json({ error: auth.error, code: "UNAUTHORIZED" }, { status: auth.status });
+  }
   const { id, chunkId } = await params;
   const startTime = Date.now();
 
@@ -63,6 +73,7 @@ export async function POST(req: Request, { params }: Params) {
 
   const workDir = projectWorkDir(id);
   const chunkAudioPath = path.join(workDir, `chunk_${String(chunk.index).padStart(3, "0")}.wav`);
+  let remoteUploadTempPath: string | null = null;
 
   try {
     const uploadDir = projectUploadDir(id);
@@ -86,12 +97,18 @@ export async function POST(req: Request, { params }: Params) {
       throw new Error(`Audio source file not found on server at: ${sendPath}`);
     }
 
-    // 1. Ensure local Python AI backend is active
+    // 1. Ensure AI backend (local or remote Colab) is reachable
     const engineUrl = getEngineUrl();
+    const remote = isRemoteEngine();
     const isAlive = await isBackendAlive(engineUrl);
     if (!isAlive) {
+      if (remote) {
+        throw new Error(
+          `Google Colab backend is offline at ${engineUrl}. Verify Cell 3 is still running in Colab and the URL in Settings matches.`
+        );
+      }
       log(`[CHUNK] Launching backend: url=${engineUrl}`);
-      const started = await ensureBackendRunning();
+      const started = await ensureBackendRunning(engineUrl);
       if (!started) {
         throw new Error(
           `Python Faster-Whisper backend is offline at ${engineUrl}. Please start it using 'start.bat' or 'python -m backend.app.main'.`
@@ -101,7 +118,22 @@ export async function POST(req: Request, { params }: Params) {
 
     // 2. Extract exact audio chunk for this window (e.g. 0 to 600s, 600 to 1200s, etc.)
     const durationSec = Math.max(0.1, chunk.endSec - chunk.startSec);
-    await extractAudioChunk(sendPath, chunkAudioPath, chunk.startSec, durationSec, 60000);
+    await extractAudioChunk(sendPath, chunkAudioPath, chunk.startSec, durationSec, 90000);
+
+    // Cloudflare quick tunnels enforce a 100 MB per-request body limit; compress oversized remote chunks to 64k MP3
+    let uploadAudioPath = chunkAudioPath;
+    if (remote && fs.existsSync(chunkAudioPath) && fs.statSync(chunkAudioPath).size > 85 * 1024 * 1024) {
+      const mp3ChunkPath = chunkAudioPath.replace(/\.wav$/i, "_colab.mp3");
+      await execFileAsync(
+        getFfmpegPath(),
+        ["-y", "-nostdin", "-i", chunkAudioPath, "-vn", "-ac", "1", "-ar", "16000", "-c:a", "libmp3lame", "-b:a", "64k", mp3ChunkPath],
+        { timeout: 120000, windowsHide: true }
+      );
+      if (fs.existsSync(mp3ChunkPath) && fs.statSync(mp3ChunkPath).size > 1024) {
+        uploadAudioPath = mp3ChunkPath;
+        remoteUploadTempPath = mp3ChunkPath;
+      }
+    }
 
     // 3. Prepare multipart payload for Faster-Whisper
     const formData = new FormData();
@@ -113,11 +145,11 @@ export async function POST(req: Request, { params }: Params) {
     formData.append("vad_filter", String(project.vadEnabled));
     formData.append("word_timestamps", "true");
 
-    if (fs.existsSync(chunkAudioPath)) {
+    if (!remote && fs.existsSync(chunkAudioPath)) {
       formData.append("file_path", chunkAudioPath);
     }
-    const chunkBuffer = fs.readFileSync(chunkAudioPath);
-    formData.append("file", new Blob([chunkBuffer]), path.basename(chunkAudioPath));
+    const chunkBuffer = fs.readFileSync(uploadAudioPath);
+    formData.append("file", new Blob([chunkBuffer]), path.basename(uploadAudioPath));
 
     const engineToken = getEngineToken();
     const headers: Record<string, string> = {};
@@ -125,9 +157,9 @@ export async function POST(req: Request, { params }: Params) {
       headers["Authorization"] = `Bearer ${engineToken}`;
     }
 
-    // 3-minute timeout per 10-minute chunk (abundant time for Faster-Whisper on CUDA/CPU)
+    // Allow up to 10 minutes on remote Colab (first run downloads multi-GB weights such as large-v3)
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 180000);
+    const timer = setTimeout(() => controller.abort(), remote ? 600000 : 180000);
 
     let response: Response;
     try {
@@ -304,7 +336,7 @@ export async function POST(req: Request, { params }: Params) {
       confidence: 95,
       overlapRemoved,
       durationMs: Math.round(durationSec * 1000),
-      note: null,
+      note: data.note || null,
     });
   } catch (e: any) {
     const elapsedSec = ((Date.now() - startTime) / 1000).toFixed(2);
@@ -327,12 +359,14 @@ export async function POST(req: Request, { params }: Params) {
       { status: 500 }
     );
   } finally {
-    // 11. Clean up temporary sliced audio file
-    if (fs.existsSync(chunkAudioPath)) {
-      try {
-        fs.unlinkSync(chunkAudioPath);
-      } catch {
-        // non-fatal cleanup
+    // 11. Clean up temporary sliced audio files
+    for (const p of [chunkAudioPath, remoteUploadTempPath]) {
+      if (p && fs.existsSync(p)) {
+        try {
+          fs.unlinkSync(p);
+        } catch {
+          // non-fatal cleanup
+        }
       }
     }
   }

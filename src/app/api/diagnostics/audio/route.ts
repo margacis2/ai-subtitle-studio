@@ -5,12 +5,14 @@ import { execFileSync } from "node:child_process";
 import {
   hasFfmpeg,
   hasFfprobe,
+  getFfmpegPath,
+  getFfprobePath,
   probeMedia,
   extractWav,
   energyVad,
   AudioProcessingError,
 } from "@/lib/audio";
-import { ensureDirs, isBackendAlive, ensureBackendRunning, WORK_DIR } from "@/lib/server";
+import { ensureDirs, getLocalEngineUrl, isBackendAlive, ensureBackendRunning, WORK_DIR } from "@/lib/server";
 
 export const runtime = "nodejs";
 
@@ -27,9 +29,10 @@ export async function GET() {
 
   // Step 1: Backend connectivity
   try {
-    let alive = await isBackendAlive();
+    const localUrl = getLocalEngineUrl();
+    let alive = await isBackendAlive(localUrl);
     if (!alive) {
-      alive = await ensureBackendRunning();
+      alive = await ensureBackendRunning(localUrl);
     }
     if (alive) {
       steps.push({
@@ -57,7 +60,7 @@ export async function GET() {
   // Step 2: FFmpeg executable
   try {
     if (hasFfmpeg()) {
-      const ver = execFileSync("ffmpeg", ["-version"], { encoding: "utf-8", timeout: 3000 });
+      const ver = execFileSync(getFfmpegPath(), ["-version"], { encoding: "utf-8", timeout: 3000, windowsHide: true });
       const firstLine = ver.split("\n")[0] || "FFmpeg available";
       steps.push({
         name: "2. FFmpeg Executable",
@@ -68,8 +71,8 @@ export async function GET() {
       steps.push({
         name: "2. FFmpeg Executable",
         status: "FAIL",
-        details: "ffmpeg command not found on system PATH",
-        error: "Please install FFmpeg and add it to system PATH.",
+        details: "ffmpeg command not found on system PATH or C:\\ffmpeg",
+        error: "Please install FFmpeg and add it to system PATH or C:\\ffmpeg\\ffmpeg.exe.",
       });
     }
   } catch (err: any) {
@@ -84,7 +87,7 @@ export async function GET() {
   // Step 3: FFprobe executable
   try {
     if (hasFfprobe()) {
-      const ver = execFileSync("ffprobe", ["-version"], { encoding: "utf-8", timeout: 3000 });
+      const ver = execFileSync(getFfprobePath(), ["-version"], { encoding: "utf-8", timeout: 3000, windowsHide: true });
       const firstLine = ver.split("\n")[0] || "FFprobe available";
       steps.push({
         name: "3. FFprobe Executable",
@@ -95,8 +98,8 @@ export async function GET() {
       steps.push({
         name: "3. FFprobe Executable",
         status: "FAIL",
-        details: "ffprobe command not found on system PATH",
-        error: "Please install FFprobe and add it to system PATH.",
+        details: "ffprobe command not found on system PATH or C:\\ffmpeg",
+        error: "Please install FFprobe and add it to system PATH or C:\\ffmpeg\\ffprobe.exe.",
       });
     }
   } catch (err: any) {
@@ -135,18 +138,18 @@ export async function GET() {
   }
 
   // Step 5: Input Media Analysis
-  let testMedia = path.join(process.cwd(), "sample_test_video.mp4");
+  let testMedia = path.join(/*turbopackIgnore: true*/ process.cwd(), "sample_test_video.mp4");
   if (!fs.existsSync(testMedia)) {
     // Generate a minimal test media with ffmpeg if sample video is missing
     try {
-      execFileSync("ffmpeg", [
+      execFileSync(getFfmpegPath(), [
         "-y", "-nostdin",
         "-f", "lavfi", "-i", "sine=frequency=440:duration=3",
         "-f", "lavfi", "-i", "color=c=black:s=320x240:d=3",
         "-c:v", "libx264", "-c:a", "aac",
         "-shortest",
         testMedia
-      ], { timeout: 10000 });
+      ], { timeout: 10000, windowsHide: true });
     } catch {
       /* ignore */
     }

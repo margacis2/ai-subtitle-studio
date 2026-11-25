@@ -38,6 +38,9 @@ def get_ffprobe_path() -> str:
         return path
     raise RuntimeError("FFprobe executable not found on system PATH or standard locations")
 
+def _win_creation_flags() -> int:
+    return subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+
 def probe_media_info(file_path: str) -> Dict[str, Any]:
     """Extract media duration, streams, audio tracks using ffprobe."""
     ffprobe = get_ffprobe_path()
@@ -49,7 +52,16 @@ def probe_media_info(file_path: str) -> Dict[str, Any]:
         "-show_streams",
         file_path
     ]
-    res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    res = subprocess.run(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=15,
+        creationflags=_win_creation_flags(),
+    )
     if res.returncode != 0:
         raise RuntimeError(f"FFprobe failed on {file_path}: {res.stderr}")
 
@@ -113,7 +125,7 @@ def extract_optimized_audio(
         wav_path
     ]
     try:
-        res = subprocess.run(cmd_wav, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=300)
+        res = subprocess.run(cmd_wav, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=300, creationflags=_win_creation_flags())
     except subprocess.TimeoutExpired:
         raise RuntimeError(f"FFmpeg WAV extraction timed out after 300s on: {media_path}")
 
@@ -131,7 +143,7 @@ def extract_optimized_audio(
             wav_path
         ]
         try:
-            res_fb = subprocess.run(cmd_fallback, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=300)
+            res_fb = subprocess.run(cmd_fallback, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=300, creationflags=_win_creation_flags())
             if res_fb.returncode == 0 and os.path.exists(wav_path) and os.path.getsize(wav_path) >= 100:
                 res = res_fb
         except Exception:
@@ -175,7 +187,7 @@ def extract_optimized_audio(
         "-b:a", "64k",
         mp3_path
     ]
-    res2 = subprocess.run(cmd_mp3, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    res2 = subprocess.run(cmd_mp3, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=300, creationflags=_win_creation_flags())
     if res2.returncode == 0 and os.path.exists(mp3_path):
         mp3_size = os.path.getsize(mp3_path)
         change_pct = round(abs(orig_size - mp3_size) / max(1, orig_size) * 100, 1)

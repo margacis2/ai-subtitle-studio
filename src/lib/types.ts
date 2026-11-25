@@ -533,5 +533,6 @@ export interface TranslationModelOption {
   total_bytes?: number;
   speed_mbps?: number;
   installed_size_mb?: number;
+  error?: string | null;
 }
 

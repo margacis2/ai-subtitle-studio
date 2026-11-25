@@ -52,16 +52,23 @@ def get_nllb_ct2_model_dir() -> str:
         print(f"[WARN] CTranslate2 NLLB auto-conversion error: {e}")
         return ""
 
-def get_ct2_nllb_engine():
+def get_ct2_nllb_engine(force_cpu: bool = False):
     global _ct2_nllb_translator, _ct2_nllb_tokenizer
     with _ct2_lock:
+        if force_cpu and _ct2_nllb_translator is not None:
+            try:
+                del _ct2_nllb_translator
+            except Exception:
+                pass
+            _ct2_nllb_translator = None
+
         if _ct2_nllb_translator is None:
             ct2_dir = get_nllb_ct2_model_dir()
             if not ct2_dir:
                 return None, None
             import ctranslate2
             from transformers import AutoTokenizer
-            device = "cuda" if ctranslate2.get_cuda_device_count() > 0 else "cpu"
+            device = "cpu" if force_cpu else ("cuda" if ctranslate2.get_cuda_device_count() > 0 else "cpu")
             compute_type = "int8_float16" if device == "cuda" else "int8"
             print(f"[*] Initializing CTranslate2 NLLB on {device.upper()} ({compute_type})...")
             try:
@@ -69,7 +76,7 @@ def get_ct2_nllb_engine():
             except Exception as e:
                 print(f"[WARN] CUDA CTranslate2 failed ({e}), falling back to CPU int8...")
                 trans = ctranslate2.Translator(ct2_dir, device="cpu", compute_type="int8")
-            tok = AutoTokenizer.from_pretrained("facebook/nllb-200-distilled-600M")
+            tok = _ct2_nllb_tokenizer or AutoTokenizer.from_pretrained("facebook/nllb-200-distilled-600M")
             _ct2_nllb_translator = trans
             _ct2_nllb_tokenizer = tok
             print(f"[✓] CTranslate2 NLLB engine ready on {_ct2_nllb_translator.device.upper()}")
@@ -201,14 +208,34 @@ def translate_with_opus(texts: List[str], source_lang: str, target_lang: str) ->
             inputs = {k: v.to("cuda") for k, v in inputs.items()}
 
         with torch.no_grad():
-            # Fast greedy decoding (num_beams=1) for 8x faster subtitle translation
-            generated = mdl.generate(
-                **inputs,
-                max_new_tokens=64,
-                num_beams=1,
-                do_sample=False,
-                early_stopping=True
-            )
+            try:
+                # Fast greedy decoding (num_beams=1) for 8x faster subtitle translation
+                generated = mdl.generate(
+                    **inputs,
+                    max_new_tokens=64,
+                    num_beams=1,
+                    do_sample=False,
+                    early_stopping=True
+                )
+            except Exception as gen_err:
+                if device == "cuda":
+                    print(f"[WARN] OPUS CUDA generation error ({gen_err}), falling back to CPU...")
+                    mdl = mdl.to("cpu")
+                    with _opus_lock:
+                        _opus_cache[model_id] = (tok, mdl)
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+                    device = "cpu"
+                    inputs = {k: v.to("cpu") for k, v in inputs.items()}
+                    generated = mdl.generate(
+                        **inputs,
+                        max_new_tokens=64,
+                        num_beams=1,
+                        do_sample=False,
+                        early_stopping=True
+                    )
+                else:
+                    raise gen_err
         decoded = tok.batch_decode(generated, skip_special_tokens=True)
         for original, translated in zip(chunk, decoded):
             results.append("" if not original.strip() else translated.strip())
@@ -233,36 +260,45 @@ def translate_with_nllb(texts: List[str], source_lang: str, target_lang: str) ->
     tgt_nllb = NLLB_CODE_MAP.get(tgt_raw, f"{tgt_raw}_Latn")
 
     # Fast Path: CTranslate2 accelerated engine (30+ lines/second on GPU, 15+ on CPU)
-    try:
-        translator, tok = get_ct2_nllb_engine()
-        if translator is not None and tok is not None:
-            results = []
-            batch_size = 32
-            for i in range(0, len(texts), batch_size):
-                chunk = texts[i : i + batch_size]
-                tokens_batch = []
-                for s in chunk:
-                    clean = s.strip() if s.strip() else "."
-                    tok.src_lang = src_nllb
-                    tokens_batch.append(tok.convert_ids_to_tokens(tok.encode(clean)))
+    for force_cpu in (False, True):
+        try:
+            translator, tok = get_ct2_nllb_engine(force_cpu=force_cpu)
+            if translator is not None and tok is not None:
+                results = []
+                batch_size = 32
+                for i in range(0, len(texts), batch_size):
+                    chunk = texts[i : i + batch_size]
+                    tokens_batch = []
+                    for s in chunk:
+                        clean = s.strip() if s.strip() else "."
+                        tok.src_lang = src_nllb
+                        tokens_batch.append(tok.convert_ids_to_tokens(tok.encode(clean)))
 
-                target_prefix = [[tgt_nllb]] * len(chunk)
-                ct2_results = translator.translate_batch(
-                    tokens_batch,
-                    target_prefix=target_prefix,
-                    max_decoding_length=36,
-                    beam_size=1
-                )
-                for original, r in zip(chunk, ct2_results):
-                    if not original.strip():
-                        results.append("")
-                    else:
-                        hyp_tokens = r.hypotheses[0][1:] if len(r.hypotheses[0]) > 1 else r.hypotheses[0]
-                        translated_text = tok.decode(tok.convert_tokens_to_ids(hyp_tokens), skip_special_tokens=True).strip()
-                        results.append(translated_text)
-            return results
-    except Exception as e:
-        print(f"[WARN] CTranslate2 NLLB execution failed: {e}. Falling back to PyTorch pipeline.")
+                    target_prefix = [[tgt_nllb]] * len(chunk)
+                    ct2_results = translator.translate_batch(
+                        tokens_batch,
+                        target_prefix=target_prefix,
+                        max_decoding_length=36,
+                        beam_size=1
+                    )
+                    for original, r in zip(chunk, ct2_results):
+                        if not original.strip():
+                            results.append("")
+                        else:
+                            hyp_tokens = r.hypotheses[0][1:] if len(r.hypotheses[0]) > 1 else r.hypotheses[0]
+                            translated_text = tok.decode(tok.convert_tokens_to_ids(hyp_tokens), skip_special_tokens=True).strip()
+                            results.append(translated_text)
+                return results
+            break
+        except Exception as e:
+            print(f"[WARN] CTranslate2 NLLB execution failed (force_cpu={force_cpu}): {e}.")
+            if force_cpu:
+                print("[WARN] Falling back to PyTorch NLLB pipeline.")
+                break
+            import gc
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
 
     # Fallback Path: HuggingFace PyTorch pipeline
     model_id = "facebook/nllb-200-distilled-600M"

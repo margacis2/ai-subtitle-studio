@@ -9,17 +9,20 @@ import {
   extractWav,
   extractOptimizedAudio,
   energyVad,
-  hasFfmpeg,
   probeMedia,
   AudioProcessingError,
   type AudioOptimizationResult,
 } from "@/lib/audio";
-import { log, newId, projectUploadDir, projectWorkDir } from "@/lib/server";
+import { log, newId, projectUploadDir, projectWorkDir, checkRemoteAccess } from "@/lib/server";
 import type { VadSummary } from "@/lib/types";
 
 export const runtime = "nodejs";
 
-export async function POST(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const auth = await checkRemoteAccess(req);
+  if (!auth.ok) {
+    return NextResponse.json({ error: auth.error }, { status: auth.status });
+  }
   const { id } = await params;
 
   try {
@@ -226,6 +229,8 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
             path: audioOptResult.path,
             originalSize: audioOptResult.originalSize,
             optimizedSize: audioOptResult.optimizedSize,
+            changePercent: audioOptResult.changePercent,
+            changeType: audioOptResult.changeType,
             compressionRatio: audioOptResult.compressionRatio,
             format: audioOptResult.format,
           }

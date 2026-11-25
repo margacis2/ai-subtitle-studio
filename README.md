@@ -239,6 +239,26 @@ Start both the GPU AI backend (port 8001) and Next.js Studio (port 3000) with au
 - Supported mobile formats: MP4, MKV, MOV, WEBM, MP3, WAV, M4A, 3GP, 3GPP, AMR, FLAC, OGG, OPUS, AAC.
 - Uses native Android and iOS media pickers with real-time XHR upload progress reporting.
 
+### 4. PowerShell Script Execution Policy (`npm.ps1` / `npx.ps1` Blocked)
+- *Issue*: Running `npm` or `npx` directly in PowerShell on Windows fails if `Restricted` execution policy blocks `.ps1` shims.
+- *Solution*: Run commands via Command Prompt (`cmd /c "npm run build"`) or launch `setup.bat` and `start.bat` directly.
+
+### 5. `FFmpeg` / `FFprobe` Not Found on `PATH`
+- *Issue*: Audio extraction, VAD diagnostics, or subtitle burn-in report missing FFmpeg when `ffmpeg.exe` is installed outside the system `PATH` (for example in `C:\ffmpeg\`).
+- *Solution*: Install FFmpeg into `C:\ffmpeg\` or `C:\ffmpeg\bin\`, set `FFMPEG_PATH` / `FFPROBE_PATH` in `.env`, or add the folder to Windows `PATH`. Both `start.bat` and the Python/Node backends probe these locations automatically.
+
+### 6. 4 GB VRAM OOM & CPU vs. CUDA Wheels
+- *Issue*: Larger Whisper models (e.g., `large-v3` or `medium` in `float16`) can exceed 4 GB VRAM on laptop GPUs (such as an RTX 3050), and default PyPI `torch` wheels on Windows are CPU-only.
+- *Solution*: Keep **Unload ASR before Translation** enabled so `/release-memory` frees GPU memory between stages. The engine automatically falls back through `int8_float16` → `int8` → smaller CUDA models → CPU `int8` on CUDA OOM. Faster-Whisper and NLLB-200 run on CUDA via CTranslate2 and the bundled `cublas`/`cudnn` DLLs; if you also want OPUS-MT (`transformers`/PyTorch) on GPU, install a CUDA-enabled PyTorch wheel inside `.venv`.
+
+### 7. Native `esbuild` / `better-sqlite3` & SQLite Schema Push
+- *Issue*: Fresh installs with restricted build scripts can lack `@esbuild/win32-x64/esbuild.exe` or native `better-sqlite3` bindings, causing `drizzle-kit push` or DB queries to fail.
+- *Solution*: Run `node node_modules/esbuild/install.js` (and `npm rebuild better-sqlite3` if needed), then run `npx drizzle-kit push --force` to initialize `%LOCALAPPDATA%\AI Subtitle Studio\studio.db`.
+
+### 8. QR Code Endpoint Errors & Port / Next.js Build Conflicts
+- *Issue*: `/remote/qr` fails if `Pillow` is missing (`qrcode` alone cannot encode PNGs), or `next dev` / `next build` fails if a leftover root `app/` folder shadows `src/app/` or a stale `.next/dev/lock` exists.
+- *Solution*: Run `setup.bat` to install `pillow` alongside `qrcode[pil]`. If Next.js fails to start or build, clear `.next` and ensure no conflicting process holds ports `3000` or `8001`.
+
 ---
 
 ## 🔐 Data Privacy & Local Storage

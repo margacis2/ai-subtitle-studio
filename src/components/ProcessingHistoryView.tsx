@@ -37,10 +37,25 @@ export default function ProcessingHistoryView({
   };
 
   useEffect(() => {
-    fetchLogs();
-    if (!autoRefresh) return;
-    const iv = setInterval(fetchLogs, 4000);
-    return () => clearInterval(iv);
+    let active = true;
+    const load = async () => {
+      try {
+        const res = await fetch("/api/logs");
+        if (res.ok && active) {
+          const data = await res.json();
+          setLogs(data.lines || []);
+        }
+      } catch {
+        /* ignore */
+      }
+    };
+    void load();
+    if (!autoRefresh) return () => { active = false; };
+    const iv = setInterval(() => void load(), 4000);
+    return () => {
+      active = false;
+      clearInterval(iv);
+    };
   }, [autoRefresh]);
 
   const filteredLogs = useMemo(() => {

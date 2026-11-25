@@ -1,9 +1,13 @@
 import { NextResponse } from "next/server";
+import fs from "node:fs";
+import path from "node:path";
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import { desc, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { projects, chunks } from "@/db/schema";
 import { buildChunkPlan } from "@/lib/time";
-import { newId, safeBaseName, isAllowedMedia, projectUploadDir, humanBytes, log } from "@/lib/server";
+import { newId, safeBaseName, isAllowedMedia, projectUploadDir, humanBytes, log, checkRemoteAccess } from "@/lib/server";
 import { probeMedia } from "@/lib/audio";
 import { toProject, toChunk } from "@/lib/rows";
 import type { StudioSettings } from "@/lib/types";
@@ -18,6 +22,11 @@ export async function GET() {
 const MAX_UPLOAD = 400 * 1024 * 1024;
 
 export async function POST(req: Request) {
+  const auth = await checkRemoteAccess(req);
+  if (!auth.ok) {
+    return NextResponse.json({ error: auth.error }, { status: auth.status });
+  }
+
   const fd = await req.formData().catch(() => null);
   if (!fd) return NextResponse.json({ error: "No form data" }, { status: 400 });
 
@@ -47,73 +56,82 @@ export async function POST(req: Request) {
     /* non-fatal */
   }
 
-  const id = newId();
-  const dir = projectUploadDir(id);
-  const dest = require("node:path").join(dir, name);
-  await require("node:fs/promises").writeFile(dest, Buffer.from(await file.arrayBuffer()));
-
-  let durationSec = Math.max(1, Number(meta.durationSec) || 0);
   try {
-    const probe = probeMedia(dest);
-    if (probe.durationSec && probe.durationSec > 0) {
-      durationSec = Math.round(probe.durationSec * 10) / 10;
+    const id = newId();
+    const dir = projectUploadDir(id);
+    const dest = path.join(dir, name);
+    await pipeline(
+      Readable.fromWeb(file.stream() as Parameters<typeof Readable.fromWeb>[0]),
+      fs.createWriteStream(dest),
+    );
+
+    let durationSec = Math.max(1, Number(meta.durationSec) || 0);
+    try {
+      const probe = probeMedia(dest);
+      if (probe.durationSec && probe.durationSec > 0) {
+        durationSec = Math.round(probe.durationSec * 10) / 10;
+      }
+    } catch {
+      /* fallback to meta or 120 */
     }
-  } catch {
-    /* fallback to meta or 120 */
+    if (!durationSec || durationSec <= 0) durationSec = 120;
+
+    const chunkSizeSec = Number(settings.chunkSizeSec) || 600;
+    const overlapSec = Math.max(0, Math.min(Number(settings.overlapSec) || 3, 30));
+    const plan = buildChunkPlan(durationSec, chunkSizeSec, overlapSec);
+
+    const row = {
+      id,
+      name: name.replace(/\.[^.]+$/, ""),
+      fileName: name,
+      mimeType: file.type || "video/mp4",
+      durationSec,
+      sizeBytes: file.size,
+      sourceLang: settings.sourceLang || "auto",
+      targetLang: settings.targetLang || "original",
+      asrModel: settings.asrModel || "auto",
+      translationModel: settings.translationModel || "nllb",
+      pauseBeforeTranslate: settings.pauseBeforeTranslate !== false,
+      unloadAsrBeforeTranslate: settings.unloadAsrBeforeTranslate !== false,
+      device: settings.device || "auto",
+      computeType: settings.computeType || "auto",
+      workers: Math.max(1, Number(settings.workers) || 1),
+      chunkSizeSec,
+      overlapSec,
+      mode: settings.mode || "balanced",
+      vadEnabled: settings.vadEnabled !== false,
+      diarization: !!settings.diarization,
+      nonSpeechEvents: !!settings.nonSpeechEvents,
+      profanityMode: settings.profanityMode || "preserve",
+      autoPunctuate: settings.autoPunctuate !== false,
+      status: "pending" as const,
+      stage: "idle",
+      progress: 0,
+      totalChunks: plan.length,
+      completedChunks: 0,
+    };
+
+    await db.insert(projects).values(row);
+    await db.insert(chunks).values(
+      plan.map((p) => ({
+        id: newId(),
+        projectId: id,
+        index: p.index,
+        startSec: p.startSec,
+        endSec: p.endSec,
+        status: "WAITING" as const,
+      })),
+    );
+
+    log(`project.created id=${id} file=${name} size=${humanBytes(file.size)} duration=${Math.round(durationSec)}s chunks=${plan.length}`);
+
+    const [project] = await db.select().from(projects).where(eq(projects.id, id));
+    const chunkRows = await db.select().from(chunks).where(eq(chunks.projectId, id));
+
+    return NextResponse.json({ project: toProject(project), chunks: chunkRows.map(toChunk) }, { status: 201 });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Failed to save uploaded file";
+    log(`project.upload_error file=${name} err=${msg}`);
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
-  if (!durationSec || durationSec <= 0) durationSec = 120;
-
-  const chunkSizeSec = Number(settings.chunkSizeSec) || 600;
-  const overlapSec = Math.max(0, Math.min(Number(settings.overlapSec) || 3, 30));
-  const plan = buildChunkPlan(durationSec, chunkSizeSec, overlapSec);
-
-  const row = {
-    id,
-    name: name.replace(/\.[^.]+$/, ""),
-    fileName: name,
-    mimeType: file.type || "video/mp4",
-    durationSec,
-    sizeBytes: file.size,
-    sourceLang: settings.sourceLang || "auto",
-    targetLang: settings.targetLang || "original",
-    asrModel: settings.asrModel || "auto",
-    translationModel: settings.translationModel || "nllb",
-    pauseBeforeTranslate: settings.pauseBeforeTranslate !== false,
-    unloadAsrBeforeTranslate: settings.unloadAsrBeforeTranslate !== false,
-    device: settings.device || "auto",
-    computeType: settings.computeType || "auto",
-    workers: Math.max(1, Number(settings.workers) || 1),
-    chunkSizeSec,
-    overlapSec,
-    mode: settings.mode || "balanced",
-    vadEnabled: settings.vadEnabled !== false,
-    diarization: !!settings.diarization,
-    nonSpeechEvents: !!settings.nonSpeechEvents,
-    profanityMode: settings.profanityMode || "preserve",
-    autoPunctuate: settings.autoPunctuate !== false,
-    status: "pending" as const,
-    stage: "idle",
-    progress: 0,
-    totalChunks: plan.length,
-    completedChunks: 0,
-  };
-
-  await db.insert(projects).values(row);
-  await db.insert(chunks).values(
-    plan.map((p) => ({
-      id: newId(),
-      projectId: id,
-      index: p.index,
-      startSec: p.startSec,
-      endSec: p.endSec,
-      status: "WAITING" as const,
-    })),
-  );
-
-  log(`project.created id=${id} file=${name} size=${humanBytes(file.size)} duration=${Math.round(durationSec)}s chunks=${plan.length}`);
-
-  const [project] = await db.select().from(projects).where(eq(projects.id, id));
-  const chunkRows = await db.select().from(chunks).where(eq(chunks.projectId, id));
-
-  return NextResponse.json({ project: toProject(project), chunks: chunkRows.map(toChunk) }, { status: 201 });
 }

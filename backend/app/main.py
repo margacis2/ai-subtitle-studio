@@ -42,6 +42,7 @@ except Exception:
     pass
 
 from backend.app.core.hardware import detect_hardware, get_model_cache_dir
+from backend.app.core.benchmark import benchmark_model
 from backend.app.models.manager import (
     get_installed_models,
     download_whisper_model,
@@ -157,17 +158,58 @@ def remove_translation_model(model_id: str):
     res = delete_translation_model(model_id)
     return res
 
-from backend.app.core.benchmark import benchmark_model
-
-class BenchmarkEndpointRequest(BaseModel):
+class BenchmarkRequest(BaseModel):
     model_id: str = "small"
     audio_path: Optional[str] = None
+    models: Optional[List[str]] = None
+    device: str = "auto"
+    compute_type: str = "auto"
 
 @app.post("/benchmark")
-def run_benchmark_endpoint(req: BenchmarkEndpointRequest):
+def run_benchmark_endpoint(req: BenchmarkRequest):
+    """Run real inference benchmark for one model or a list of models."""
     try:
-        res = benchmark_model(model_id=req.model_id, audio_path=req.audio_path)
-        return res
+        if req.models and len(req.models) > 0:
+            results = []
+            for mid in req.models:
+                t0 = time.time()
+                try:
+                    r = benchmark_model(
+                        model_id=mid,
+                        audio_path=req.audio_path,
+                        device=req.device,
+                        compute_type=req.compute_type,
+                    )
+                    results.append({
+                        "model_id": mid,
+                        "status": "success",
+                        "load_time_sec": r["load_time_sec"],
+                        "inference_time_sec": r["transcribe_time_sec"],
+                        "total_time_sec": round(time.time() - t0, 2),
+                        "audio_duration_sec": r["audio_duration_sec"],
+                        "rtf": r["rtf"],
+                        "speed_ratio": r["speedup_factor"],
+                        "detected_lang": r["detected_language"],
+                        "segments_count": r["segments_count"],
+                        "device": r["device"],
+                        "compute_type": r["compute_type"],
+                        "peak_vram_mb": r["peak_vram_mb"],
+                    })
+                except Exception as e:
+                    results.append({
+                        "model_id": mid,
+                        "status": "failed",
+                        "error": str(e),
+                        "total_time_sec": round(time.time() - t0, 2),
+                    })
+            return {"ok": True, "benchmark_results": results}
+
+        return benchmark_model(
+            model_id=req.model_id,
+            audio_path=req.audio_path,
+            device=req.device,
+            compute_type=req.compute_type,
+        )
     except Exception as e:
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
@@ -268,6 +310,10 @@ async def transcribe_endpoint(
             "language": res["language"],
             "duration": res["duration"],
             "processing_seconds": res["processingTimeSec"],
+            "device": res.get("device"),
+            "compute_type": res.get("computeType"),
+            "model_used": res.get("modelUsed"),
+            "note": res.get("note"),
             "segments": res["segments"]
         }
     except Exception as e:
@@ -292,65 +338,6 @@ async def transcribe_endpoint(
                 os.remove(extracted_audio)
             except Exception:
                 pass
-
-class BenchmarkRequest(BaseModel):
-    audio_path: str
-    models: List[str] = ["small"]
-    device: str = "auto"
-    compute_type: str = "auto"
-
-@app.post("/benchmark")
-def run_benchmark_endpoint(req: BenchmarkRequest):
-    """Run real inference benchmark on user audio for each specified model."""
-    if not os.path.exists(req.audio_path):
-        raise HTTPException(status_code=400, detail=f"Audio file not found: {req.audio_path}")
-
-    results = []
-    for mid in req.models:
-        t0 = time.time()
-        try:
-            # Measure model load
-            load_start = time.time()
-            from backend.app.engines.transcriber import get_whisper_engine
-            engine = get_whisper_engine(model_id=mid, preferred_device=req.device, compute_type=req.compute_type)
-            load_time = round(time.time() - load_start, 2)
-
-            # Measure inference
-            inf_start = time.time()
-            res = transcribe_audio_file(
-                req.audio_path,
-                model_id=mid,
-                preferred_device=req.device,
-                compute_type=req.compute_type,
-                word_timestamps=True
-            )
-            inf_time = round(time.time() - inf_start, 2)
-            total_time = round(time.time() - t0, 2)
-            dur = res.get("duration", 0.0)
-            rtf = round(inf_time / max(0.1, dur), 3)
-
-            results.append({
-                "model_id": mid,
-                "status": "success",
-                "load_time_sec": load_time,
-                "inference_time_sec": inf_time,
-                "total_time_sec": total_time,
-                "audio_duration_sec": dur,
-                "rtf": rtf,
-                "speed_ratio": f"{round(dur / max(0.01, inf_time), 1)}x",
-                "detected_lang": res.get("language"),
-                "segments_count": len(res.get("segments", [])),
-                "device": req.device
-            })
-        except Exception as e:
-            results.append({
-                "model_id": mid,
-                "status": "failed",
-                "error": str(e),
-                "total_time_sec": round(time.time() - t0, 2)
-            })
-
-    return {"ok": True, "benchmark_results": results}
 
 @app.post("/probe")
 def probe_endpoint(file_path: str = Form(...)):
@@ -433,9 +420,12 @@ def get_qr_endpoint(data: str):
         raise HTTPException(status_code=500, detail="Failed to generate QR code")
     return {"ok": True, "qr": img_b64}
 
+class TunnelStartRequest(BaseModel):
+    port: Optional[int] = None
+
 @app.post("/remote/tunnel/start")
-def start_remote_tunnel(port: Optional[int] = None):
-    target = port or int(os.environ.get("PORT", "3000"))
+def start_remote_tunnel(port: Optional[int] = None, req: Optional[TunnelStartRequest] = None):
+    target = port or (req.port if req else None) or int(os.environ.get("PORT", "3000"))
     st = tunnel_manager.start_tunnel(target_port=target)
     if st.get("url"):
         st["qr_wan"] = generate_qr_code_base64(st["url"])
@@ -448,7 +438,8 @@ def stop_remote_tunnel():
 
 @app.post("/remote/heartbeat")
 def device_heartbeat(payload: HeartbeatRequest, request: Request):
-    client_ip = request.client.host if request.client else "127.0.0.1"
+    forwarded = request.headers.get("cf-connecting-ip") or request.headers.get("x-forwarded-for", "").split(",")[0].strip() or request.headers.get("x-real-ip")
+    client_ip = forwarded or (request.client.host if request.client else "127.0.0.1")
     ua = request.headers.get("user-agent", "")
     host = request.headers.get("host", "")
     
@@ -462,6 +453,19 @@ def device_heartbeat(payload: HeartbeatRequest, request: Request):
     if "error" in dev:
         raise HTTPException(status_code=403, detail=dev["error"])
     return {"ok": True, "device": dev, "pin_required": device_manager.pin_required}
+
+@app.get("/remote/auth/validate")
+def validate_remote_access(
+    device_id: Optional[str] = None,
+    x_studio_token: Optional[str] = Header(None),
+    x_device_id: Optional[str] = Header(None),
+):
+    did = device_id or x_device_id
+    if did and device_manager.is_blocked(did):
+        raise HTTPException(status_code=403, detail="Device is blocked by host")
+    if device_manager.pin_required and not device_manager.validate_token(x_studio_token):
+        raise HTTPException(status_code=401, detail="Valid access PIN token required")
+    return {"ok": True, "pin_required": device_manager.pin_required}
 
 @app.get("/remote/devices")
 def get_devices_endpoint():
@@ -496,10 +500,11 @@ def configure_pin_endpoint(req: PinConfigRequest):
 
 def start_server(port: int = 8001):
     import uvicorn
-    host = os.environ.get("STUDIO_HOST", "0.0.0.0")
+    host = (os.environ.get("STUDIO_HOST") or "0.0.0.0").strip() or "0.0.0.0"
     print(f"[Engine] Starting AI Subtitle Studio Engine on {host}:{port}...")
     uvicorn.run(app, host=host, port=port, log_level="warning")
 
 if __name__ == "__main__":
-    port = int(os.environ.get("STUDIO_PORT", 8001))
+    raw_port = (os.environ.get("STUDIO_PORT") or "8001").strip()
+    port = int(raw_port) if raw_port else 8001
     start_server(port)

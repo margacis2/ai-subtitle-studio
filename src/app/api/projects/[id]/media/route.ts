@@ -46,12 +46,23 @@ export async function GET(req: Request, { params }: Params) {
 
   let filePath: string;
   let base: string;
+  const uploadDir = path.resolve(projectUploadDir(id));
   if (!f) {
     base = project.fileName;
-    filePath = path.join(projectUploadDir(id), base);
-  } else if (/^[a-zA-Z0-9._-]{1,160}$/.test(f) && /_subtitled(_\d+)?\.mp4$/i.test(f)) {
+    filePath = path.join(uploadDir, base);
+  } else if (
+    f.length <= 200 &&
+    !f.includes("..") &&
+    !f.includes("/") &&
+    !f.includes("\\") &&
+    path.basename(f) === f &&
+    /_subtitled(_\d+)?\.mp4$/i.test(f)
+  ) {
     base = f;
-    filePath = path.join(projectUploadDir(id), f);
+    filePath = path.resolve(uploadDir, f);
+    if (!filePath.startsWith(uploadDir + path.sep)) {
+      return new Response("Forbidden file", { status: 403 });
+    }
   } else {
     return new Response("Forbidden file", { status: 403 });
   }

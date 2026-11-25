@@ -6,14 +6,17 @@ import { db } from "@/db";
 import { projects } from "@/db/schema";
 import { hasFfmpeg, getFfmpegPath } from "@/lib/audio";
 import { toSrt, toAss, type AssStyle, DEFAULT_ASS_STYLE, pickExportField } from "@/lib/formats";
-import { projectUploadDir } from "@/lib/server";
+import { projectUploadDir, checkRemoteAccess, log } from "@/lib/server";
 import type { SubLine } from "@/lib/types";
 import { execFile } from "node:child_process";
-import { log } from "@/lib/server";
 
 export const runtime = "nodejs";
 
 export async function POST(req: Request) {
+  const auth = await checkRemoteAccess(req);
+  if (!auth.ok) {
+    return NextResponse.json({ error: auth.error }, { status: auth.status });
+  }
   const body = await req.json().catch(() => null) as
     | {
         projectId?: string;
@@ -53,20 +56,18 @@ export async function POST(req: Request) {
   let n = 1;
   while (fs.existsSync(path.join(dir, outName))) outName = `${stem}_subtitled_${n++}.mp4`;
 
-  let subPath: string;
+  const safeSubFile = `_studio_burn.${format === "ass" ? "ass" : "srt"}`;
+  const subPath = path.join(dir, safeSubFile);
   if (format === "ass") {
-    subPath = path.join(dir, `${stem}_burn.ass`);
     fs.writeFileSync(subPath, toAss(body.lines, field, !!body.speakerOn, style), "utf8");
   } else {
-    subPath = path.join(dir, `${stem}_burn.srt`);
     fs.writeFileSync(subPath, toSrt(body.lines, field, !!body.speakerOn), "utf8");
   }
 
   const outPath = path.join(dir, outName);
 
-  // In FFmpeg filtergraphs on Windows, colons and backslashes must be escaped if absolute
-  const escSubPath = subPath.replace(/\\/g, "/").replace(/:/g, "\\:");
-  const filter = `subtitles=filename='${escSubPath}'`;
+  // Relative filename with cwd=dir avoids Windows drive colon, quote, bracket, and Unicode filtergraph escaping bugs
+  const filter = `subtitles=filename='${safeSubFile}'`;
   const ffmpegBin = getFfmpegPath();
 
   const runBurn = (audioCodec: string): Promise<{ ok: boolean; stderr: string }> => {
@@ -88,13 +89,22 @@ export async function POST(req: Request) {
     });
   };
 
-  // Attempt 1: Copy audio stream for speed
-  let res = await runBurn("copy");
+  let res = { ok: false, stderr: "" };
+  try {
+    // Attempt 1: Copy audio stream for speed
+    res = await runBurn("copy");
 
-  // Attempt 2: If copy failed (e.g. incompatible audio codec for MP4 container), re-encode to AAC
-  if (!res.ok) {
-    log(`burn.copy_failed project=${project.id} note="Retrying with AAC audio re-encode"`);
-    res = await runBurn("aac");
+    // Attempt 2: If copy failed (e.g. incompatible audio codec for MP4 container), re-encode to AAC
+    if (!res.ok) {
+      log(`burn.copy_failed project=${project.id} note="Retrying with AAC audio re-encode"`);
+      res = await runBurn("aac");
+    }
+  } finally {
+    try {
+      if (fs.existsSync(subPath)) fs.unlinkSync(subPath);
+    } catch {
+      /* ignore */
+    }
   }
 
   if (!res.ok || !fs.existsSync(outPath)) {
@@ -115,5 +125,5 @@ export async function POST(req: Request) {
   }
 
   log(`burn.ok project=${project.id} out=${outName}`);
-  return NextResponse.json({ ok: true, url: `/api/projects/${project.id}/media?f=${outName}`, name: outName });
+  return NextResponse.json({ ok: true, url: `/api/projects/${project.id}/media?f=${encodeURIComponent(outName)}`, name: outName });
 }

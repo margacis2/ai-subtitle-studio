@@ -5,7 +5,7 @@ import { asc, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { projects, chunks, subtitles } from "@/db/schema";
 import { toProject, toChunk, toSub } from "@/lib/rows";
-import { log, projectUploadDir, projectWorkDir } from "@/lib/server";
+import { log, projectUploadDir, projectWorkDir, checkRemoteAccess } from "@/lib/server";
 
 export const runtime = "nodejs";
 
@@ -31,11 +31,16 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 const PATCHABLE = [
   "status", "stage", "progress", "qualityScore", "processingTimeSec",
   "asrTimeSec", "translationTimeSec", "asrModel", "targetLang", "sourceLang",
+  "translationModel", "pauseBeforeTranslate", "unloadAsrBeforeTranslate",
   "engineNote", "vadJson", "startedAt", "workers", "device", "computeType",
   "completedChunks",
 ] as const;
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const auth = await checkRemoteAccess(req);
+  if (!auth.ok) {
+    return NextResponse.json({ error: auth.error }, { status: auth.status });
+  }
   const { id } = await params;
   try {
     const body = await req.json().catch(() => null);
@@ -70,7 +75,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 
       // Invalidate transcription cache for this model so it re-runs fresh on GPU
       const workDir = projectWorkDir(id);
-      const targetModel = String(body.asrModel || existing.asrModel || "small");
+      const targetModel = String(body.asrModel || existing.asrModel || "small").replace(/[^a-zA-Z0-9._-]/g, "_");
       const cachePath = path.join(workDir, `transcription_cache_${targetModel}.json`);
       if (fs.existsSync(cachePath)) {
         try { fs.unlinkSync(cachePath); } catch {}

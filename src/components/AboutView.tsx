@@ -66,32 +66,38 @@ export default function AboutView({
               <div className="flex items-center justify-between pt-1">
                 <span className="text-neutral-400">Graphics Processor (GPU)</span>
                 <span className="font-semibold text-neutral-200">
-                  {hardware?.gpuName || "NVIDIA GeForce RTX 3050 Laptop GPU"}
+                  {hardware ? (hardware.gpuName || "None (CPU Mode)") : "Probing…"}
                 </span>
               </div>
               <div className="flex items-center justify-between pt-2">
                 <span className="text-neutral-400">CUDA Acceleration</span>
-                <span className="chip font-semibold" style={{ background: "rgba(16, 185, 129, 0.15)", color: "var(--ok)" }}>
-                  <Icon name="check" size={11} />
-                  Active · cuBLAS 12
+                <span
+                  className="chip font-semibold"
+                  style={{
+                    background: hardware?.cudaAvailable ? "rgba(16, 185, 129, 0.15)" : "var(--bg3)",
+                    color: hardware?.cudaAvailable ? "var(--ok)" : "var(--muted)",
+                  }}
+                >
+                  <Icon name={hardware?.cudaAvailable ? "check" : "cpu"} size={11} />
+                  {hardware?.cudaAvailable ? "Active · cuBLAS 12" : "CPU int8 Fallback"}
                 </span>
               </div>
               <div className="flex items-center justify-between pt-2">
                 <span className="text-neutral-400">Dedicated VRAM</span>
                 <span className="font-mono text-neutral-200">
-                  {hardware?.vramGb ? `${(hardware.vramGb * 1024).toFixed(0)} MB GDDR6` : "4096 MB GDDR6"}
+                  {hardware?.vramGb ? `${(hardware.vramGb * 1024).toFixed(0)} MB` : "—"}
                 </span>
               </div>
               <div className="flex items-center justify-between pt-2">
                 <span className="text-neutral-400">Central Processor (CPU)</span>
                 <span className="font-semibold text-neutral-200">
-                  {hardware?.cpuModel || "AMD Ryzen 7 7435HS (16 threads)"}
+                  {hardware ? `${hardware.cpuModel} (${hardware.cpuCores} threads)` : "Probing…"}
                 </span>
               </div>
               <div className="flex items-center justify-between pt-2">
                 <span className="text-neutral-400">System Memory (RAM)</span>
                 <span className="font-mono text-neutral-200">
-                  {hardware?.ramGb ? `${hardware.ramGb.toFixed(1)} GB Total` : "16.0 GB Total"}
+                  {hardware?.ramGb ? `${hardware.ramGb.toFixed(1)} GB Total` : "Probing…"}
                 </span>
               </div>
             </div>

@@ -15,19 +15,26 @@ export async function GET() {
   let latencyMs: number | null = null;
   let modelInfo = "Unknown";
   let device = "unknown";
+  let tokenMissing = false;
   try {
     const t0 = Date.now();
     const headers: Record<string, string> = {};
     if (currentToken) {
       headers["Authorization"] = `Bearer ${currentToken}`;
     }
-    const res = await fetch(`${currentUrl}/health`, { method: "GET", headers }).catch(() => null);
+    const res = await fetch(`${currentUrl}/health`, {
+      method: "GET",
+      headers,
+      signal: AbortSignal.timeout(5000),
+      cache: "no-store",
+    }).catch(() => null);
     latencyMs = Date.now() - t0;
     if (res && res.ok) {
       online = true;
       const data = await res.json().catch(() => ({}));
       modelInfo = data.whisper_model || "Connected";
       device = data.device || "unknown";
+      tokenMissing = Boolean(isColab && data.has_token && !currentToken);
     }
   } catch {
     online = false;
@@ -36,6 +43,7 @@ export async function GET() {
   return NextResponse.json({
     engineUrl: currentUrl,
     hasToken: Boolean(currentToken),
+    tokenMissing,
     isColab,
     online,
     latencyMs,

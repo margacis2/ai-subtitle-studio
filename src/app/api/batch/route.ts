@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
+import fs from "node:fs/promises";
+import path from "node:path";
 import { db } from "@/db";
 import { batchJobs } from "@/db/schema";
 import { desc, eq } from "drizzle-orm";
-import { newId, log } from "@/lib/server";
+import { newId, log, safeBaseName, checkRemoteAccess } from "@/lib/server";
 
 export const runtime = "nodejs";
 
@@ -13,6 +15,11 @@ export async function GET() {
 
 export async function POST(req: Request) {
   try {
+    const auth = await checkRemoteAccess(req);
+    if (!auth.ok) {
+      return NextResponse.json({ error: auth.error }, { status: auth.status });
+    }
+
     const contentType = req.headers.get("content-type") || "";
 
     if (contentType.includes("multipart/form-data")) {
@@ -27,8 +34,6 @@ export async function POST(req: Request) {
       }
 
       const created = [];
-      const fs = require("node:fs/promises");
-      const path = require("node:path");
 
       for (const item of files) {
         if (!(item instanceof File)) continue;
@@ -36,8 +41,8 @@ export async function POST(req: Request) {
         const batchDir = path.join(process.cwd(), "data", "work", `batch_${id}`);
         await fs.mkdir(batchDir, { recursive: true });
 
-        const safeName = item.name.replace(/[^a-zA-Z0-9._-]/g, "_");
-        const dest = path.join(batchDir, safeName);
+        const cleanName = safeBaseName(item.name || "media") || `media_${id}`;
+        const dest = path.join(batchDir, cleanName);
         const buf = Buffer.from(await item.arrayBuffer());
         await fs.writeFile(dest, buf);
 

@@ -82,7 +82,6 @@ const toneColor: Record<Toast["tone"], string> = {
 const toneIcon = { ok: "check", err: "x", warn: "alert", info: "chevron-right" } as const;
 
 export default function Page() {
-  const [mounted, setMounted] = useState(false);
   const [view, setViewInternal] = useState<View>("dashboard");
   const [navHistory, setNavHistory] = useState<View[]>(["dashboard"]);
   const [navIndex, setNavIndex] = useState<number>(0);
@@ -134,9 +133,6 @@ export default function Page() {
     }
   }, [navIndex, navHistory]);
 
-  useEffect(() => {
-    setMounted(true);
-  }, []);
   useEffect(() => {
     const s = load("ass:settings", DEFAULT_SETTINGS);
     const p = load<Prefs>("ass:prefs", { theme: "dark", fs: "md", contrast: false });
@@ -513,12 +509,14 @@ export default function Page() {
           {!sidebarCollapsed && hw && (
             <div className="mt-2 rounded-md bg-neutral-900/80 p-2 text-[0.65rem] text-neutral-400 border border-neutral-800">
               <div className="flex items-center gap-1.5 font-semibold text-neutral-300 truncate">
-                <Icon name="gpu" size={12} className="text-emerald-400 shrink-0" />
-                <span className="truncate">{hw.gpuName || "CUDA GPU"}</span>
+                <Icon name="gpu" size={12} className={hw.cudaAvailable ? "text-emerald-400 shrink-0" : "text-amber-400 shrink-0"} />
+                <span className="truncate">{hw.gpuName || "CPU Fallback Mode"}</span>
               </div>
               <div className="flex items-center justify-between text-neutral-400 mt-0.5">
-                <span>CUDA Ready</span>
-                <span className="font-mono text-cyan-400">fp16</span>
+                <span>{hw.cudaAvailable ? "CUDA Ready" : `${hw.cpuCores} Threads`}</span>
+                <span className="font-mono text-cyan-400">
+                  {hw.cudaAvailable ? ((hw.vramGb ?? 0) <= 6 ? "int8_fp16" : "fp16") : "int8"}
+                </span>
               </div>
             </div>
           )}
@@ -679,11 +677,19 @@ export default function Page() {
             <span
               onClick={() => setDiagOpen(true)}
               className="chip cursor-pointer hover:border-emerald-500/50 transition-colors hidden lg:inline-flex"
-              style={{ background: "rgba(16, 185, 129, 0.12)", color: "var(--ok)", borderColor: "transparent" }}
+              style={{
+                background: hw?.cudaAvailable ? "rgba(16, 185, 129, 0.12)" : "var(--bg3)",
+                color: hw?.cudaAvailable ? "var(--ok)" : "var(--muted)",
+                borderColor: "transparent",
+              }}
               title="Click to run 9-step audio processing diagnostics"
             >
               <Icon name="shield" size={11} />
-              NVIDIA RTX 3050 · CUDA Active
+              {hw
+                ? hw.cudaAvailable
+                  ? `${hw.gpuName || "NVIDIA GPU"} · CUDA Active`
+                  : `${hw.cpuCores}-Core CPU · int8 Ready`
+                : "Probing Hardware…"}
             </span>
 
             <Btn size="sm" icon="shield" onClick={() => setDiagOpen(true)} className="hidden sm:inline-flex">

@@ -24,32 +24,50 @@ export async function PUT(req: Request, { params }: Params) {
     return NextResponse.json({ error: "Too many lines" }, { status: 413 });
   }
 
-  const sorted = [...lines].sort((a, b) => a.startMs - b.startMs || a.endMs - b.endMs);
-  await db.delete(subtitles).where(eq(subtitles.projectId, id));
-  if (sorted.length > 0) {
-    await db.insert(subtitles).values(
-      sorted.map((l, i) => ({
-        id: l.id || newId(),
-        projectId: id,
-        seq: i + 1,
-        startMs: Math.max(0, Math.round(l.startMs)),
-        endMs: Math.max(0, Math.round(l.endMs)),
-        speaker: l.speaker ?? null,
-        original: l.original ?? "",
-        translation: l.translation ?? "",
-        confidence: l.confidence ?? 0,
-        kind: l.kind === "event" ? "event" : "speech",
-      })),
-    );
+  for (const l of lines) {
+    if (typeof l !== "object" || l === null || !Number.isFinite(Number(l.startMs)) || !Number.isFinite(Number(l.endMs))) {
+      return NextResponse.json({ error: "Each line requires finite numeric startMs and endMs" }, { status: 400 });
+    }
   }
-  const [updated] = await db
-    .update(projects)
-    .set({ updatedAt: new Date().toISOString() })
-    .where(eq(projects.id, id))
-    .returning();
-  void updated;
-  log(`subtitles.saved project=${id} count=${sorted.length}`);
-  return NextResponse.json({ ok: true, count: sorted.length });
+
+  try {
+    const sorted = [...lines].sort((a, b) => Number(a.startMs) - Number(b.startMs) || Number(a.endMs) - Number(b.endMs));
+    db.transaction((tx) => {
+      tx.delete(subtitles).where(eq(subtitles.projectId, id)).run();
+      if (sorted.length > 0) {
+        tx.insert(subtitles)
+          .values(
+            sorted.map((l, i) => {
+              const startMs = Math.max(0, Math.round(Number(l.startMs)));
+              const endMs = Math.max(startMs, Math.round(Number(l.endMs)));
+              return {
+                id: l.id || newId(),
+                projectId: id,
+                seq: i + 1,
+                startMs,
+                endMs,
+                speaker: l.speaker ?? null,
+                original: String(l.original ?? ""),
+                translation: String(l.translation ?? ""),
+                confidence: Number.isFinite(Number(l.confidence)) ? Number(l.confidence) : 0,
+                kind: l.kind === "event" ? "event" : "speech",
+              };
+            }),
+          )
+          .run();
+      }
+      tx.update(projects)
+        .set({ updatedAt: new Date().toISOString() })
+        .where(eq(projects.id, id))
+        .run();
+    });
+    log(`subtitles.saved project=${id} count=${sorted.length}`);
+    return NextResponse.json({ ok: true, count: sorted.length });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Failed to save subtitles";
+    log(`subtitles.save_error project=${id} err=${msg}`);
+    return NextResponse.json({ error: msg }, { status: 500 });
+  }
 }
 
 export async function DELETE(_req: Request, { params }: Params) {

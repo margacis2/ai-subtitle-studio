@@ -1,6 +1,7 @@
 /** Server-side hardware probe (real values where available). */
 import os from "node:os";
 import { execFile } from "node:child_process";
+import { getFfmpegPath } from "./audio";
 import type { HardwareInfo } from "./types";
 
 function run(cmd: string, args: string[], timeoutMs = 1600): Promise<{ ok: boolean; out: string }> {
@@ -44,7 +45,7 @@ export async function probeHardware(force = false): Promise<HardwareInfo> {
     if (Number.isNaN(Number(util))) gpuUtil = null;
   }
 
-  const ff = await run("ffmpeg", ["-version"], 1600);
+  const ff = await run(getFfmpegPath(), ["-version"], 1600);
   const ffmpeg = ff.ok ? (ff.out.split("\n")[0] || "FFmpeg") : null;
 
   const data: HardwareInfo = {

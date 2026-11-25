@@ -421,7 +421,6 @@ export default function MediaLibraryView({
                 onClick={() => {
                   onDeleteProject(deleteConfirmId);
                   setDeleteConfirmId(null);
-                  onToast("ok", "Project deleted");
                 }}
               >
                 Delete Project

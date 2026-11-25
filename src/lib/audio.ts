@@ -40,7 +40,7 @@ export function getFfmpegPath(): string {
   const candidates = [
     "C:\\ffmpeg\\ffmpeg.exe",
     "C:\\ffmpeg\\bin\\ffmpeg.exe",
-    path.join(process.cwd(), "bin", "ffmpeg.exe"),
+    path.join(/*turbopackIgnore: true*/ process.cwd(), "bin", "ffmpeg.exe"),
   ];
   for (const c of candidates) {
     if (fs.existsSync(c)) return c;
@@ -55,7 +55,7 @@ export function getFfprobePath(): string {
   const candidates = [
     "C:\\ffmpeg\\ffprobe.exe",
     "C:\\ffmpeg\\bin\\ffprobe.exe",
-    path.join(process.cwd(), "bin", "ffprobe.exe"),
+    path.join(/*turbopackIgnore: true*/ process.cwd(), "bin", "ffprobe.exe"),
   ];
   for (const c of candidates) {
     if (fs.existsSync(c)) return c;

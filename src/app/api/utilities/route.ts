@@ -12,7 +12,7 @@ import {
   validateSubtitles,
 } from "@/lib/utilities";
 import { toSrt, toVtt, toAss, toTxt, toJson, DEFAULT_ASS_STYLE } from "@/lib/formats";
-import { probeMedia, extractWav, extractOptimizedAudio, hasFfmpeg, hasFfprobe } from "@/lib/audio";
+import { probeMedia, extractWav, getFfmpegPath, getFfprobePath } from "@/lib/audio";
 import { WORK_DIR, ensureDirs } from "@/lib/server";
 
 export const runtime = "nodejs";
@@ -114,12 +114,12 @@ export async function POST(req: Request) {
       // Detailed ffprobe json
       let streamDetails: any[] = [];
       try {
-        const out = execFileSync("ffprobe", [
+        const out = execFileSync(getFfprobePath(), [
           "-v", "error",
           "-show_streams",
           "-print_format", "json",
           filePath
-        ], { encoding: "utf-8", timeout: 10000 });
+        ], { encoding: "utf-8", timeout: 10000, windowsHide: true });
         streamDetails = JSON.parse(out).streams || [];
       } catch {
         /* ignore */
@@ -156,14 +156,14 @@ export async function POST(req: Request) {
       const baseOut = path.join(WORK_DIR, `extracted_${Date.now()}`);
       if (targetFormat === "mp3") {
         const mp3Out = `${baseOut}.mp3`;
-        execFileSync("ffmpeg", [
+        execFileSync(getFfmpegPath(), [
           "-y", "-nostdin",
           "-i", filePath,
           "-vn",
           "-c:a", "libmp3lame",
           "-b:a", "192k",
           mp3Out,
-        ], { timeout: 120000 });
+        ], { timeout: 120000, windowsHide: true });
         const stat = fs.statSync(mp3Out);
         return NextResponse.json({ ok: true, outputPath: mp3Out, format: "mp3", size: stat.size });
       } else {

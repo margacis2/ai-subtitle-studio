@@ -25,6 +25,7 @@ export interface ModelItem {
   total_bytes?: number;
   speed_mbps?: number;
   installed_size_mb?: number;
+  error?: string | null;
 }
 
 export default function ModelManagerView({
@@ -36,6 +37,7 @@ export default function ModelManagerView({
   const [asrModels, setAsrModels] = useState<ModelItem[]>([]);
   const [transModels, setTransModels] = useState<TranslationModelOption[]>([]);
   const [cacheDir, setCacheDir] = useState<string>("");
+  const [backendOnline, setBackendOnline] = useState<boolean>(true);
   const [hw, setHw] = useState<HardwareInfo | null>(null);
   const [actionInProgress, setActionInProgress] = useState<string | null>(null);
   const [testingModel, setTestingModel] = useState<string | null>(null);
@@ -47,7 +49,10 @@ export default function ModelManagerView({
       if (resAsr.ok) {
         const data = await resAsr.json();
         setAsrModels(data.models || []);
+        setBackendOnline(data.online !== false);
         if (data.cache_dir) setCacheDir(data.cache_dir);
+      } else {
+        setBackendOnline(false);
       }
       // 2. Fetch Translation models
       const resTrans = await fetch("/api/models?type=translation");
@@ -56,13 +61,39 @@ export default function ModelManagerView({
         setTransModels(data.models || []);
       }
     } catch {
-      /* ignore */
+      setBackendOnline(false);
     }
   };
 
   useEffect(() => {
-    fetchModels();
-    fetchHardware().then(setHw).catch(() => null);
+    let active = true;
+    const load = async () => {
+      try {
+        const [resAsr, resTrans] = await Promise.all([
+          fetch("/api/models?type=asr"),
+          fetch("/api/models?type=translation"),
+        ]);
+        if (resAsr.ok && active) {
+          const data = await resAsr.json();
+          setAsrModels(data.models || []);
+          setBackendOnline(data.online !== false);
+          if (data.cache_dir) setCacheDir(data.cache_dir);
+        } else if (active) {
+          setBackendOnline(false);
+        }
+        if (resTrans.ok && active) {
+          const data = await resTrans.json();
+          setTransModels(data.models || []);
+        }
+      } catch {
+        if (active) setBackendOnline(false);
+      }
+    };
+    void load();
+    fetchHardware().then((h) => { if (active) setHw(h); }).catch(() => null);
+    return () => {
+      active = false;
+    };
   }, []);
 
   // Polling for active downloads
@@ -130,8 +161,16 @@ export default function ModelManagerView({
         body: JSON.stringify({ modelId, action: "delete", type }),
       });
       if (res.ok) {
-        onToast("ok", `Model ${modelId} removed from disk.`);
+        const data = await res.json();
+        if (data.ok === false) {
+          onToast("err", data.error || `Failed to delete ${modelId}`);
+        } else {
+          onToast("ok", `Model ${modelId} removed from disk.`);
+        }
         await fetchModels();
+      } else {
+        const err = await res.json().catch(() => ({}));
+        onToast("err", err.error || `Delete failed (${res.status})`);
       }
     } catch (e: any) {
       onToast("err", e.message || "Failed to delete");
@@ -168,6 +207,9 @@ export default function ModelManagerView({
                 });
                 if (res.ok) {
                   onToast("ok", "VRAM Cleared: All ASR and Translation models unloaded from GPU/RAM");
+                } else {
+                  const err = await res.json().catch(() => ({}));
+                  onToast("err", err.error || "Failed to release models");
                 }
               } catch {
                 onToast("err", "Failed to release models");
@@ -181,6 +223,15 @@ export default function ModelManagerView({
           </Btn>
         </div>
       </div>
+
+      {!backendOnline && (
+        <div className="panel-inset flex flex-wrap items-center justify-between gap-2 p-3 text-xs border border-amber-500/40 bg-amber-500/10 text-amber-300">
+          <span>
+            ⚠️ Local Python AI engine (port 8001) is offline. Downloading or testing models will auto-start it, or run <code className="font-mono">start.bat</code>.
+          </span>
+          <Btn size="sm" onClick={fetchModels}>Retry</Btn>
+        </div>
+      )}
 
       {cacheDir && (
         <div className="panel-inset flex flex-wrap items-center justify-between gap-2 p-3 text-xs">
@@ -323,6 +374,12 @@ export default function ModelManagerView({
                     </div>
                   )}
 
+                  {m.status === "failed" && m.error && (
+                    <div className="rounded bg-rose-950/50 border border-rose-500/40 p-2 text-[0.68rem] text-rose-300 break-words">
+                      Download failed: {m.error}
+                    </div>
+                  )}
+
                   <div className="flex items-center gap-2 pt-1">
                     {!isInstalled && (
                       <Btn
@@ -451,6 +508,12 @@ export default function ModelManagerView({
                           style={{ width: `${Math.max(3, m.progress || 0)}%` }}
                         />
                       </div>
+                    </div>
+                  )}
+
+                  {m.status === "failed" && m.error && (
+                    <div className="rounded bg-rose-950/50 border border-rose-500/40 p-2 text-[0.68rem] text-rose-300 break-words">
+                      Download failed: {m.error}
                     </div>
                   )}
 

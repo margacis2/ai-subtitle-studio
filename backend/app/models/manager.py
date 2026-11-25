@@ -433,16 +433,19 @@ def get_installed_models() -> List[Dict[str, Any]]:
         with _download_lock:
             dl_info = _active_downloads.get(model_id)
             if dl_info:
-                item["downloading"] = True
+                status = dl_info.get("status", "downloading")
+                item["downloading"] = status in ("starting", "downloading", "verifying")
                 item["progress"] = dl_info.get("progress", 0)
                 item["bytes_downloaded"] = dl_info.get("bytes_downloaded", 0)
                 item["total_bytes"] = dl_info.get("total_bytes", 0)
-                item["status"] = dl_info.get("status", "downloading")
+                item["status"] = status
                 item["speed_mbps"] = dl_info.get("speed_mbps", 0)
+                item["error"] = dl_info.get("error")
             else:
                 item["downloading"] = False
                 item["progress"] = 100 if installed else 0
                 item["status"] = "installed" if installed else "available"
+                item["error"] = None
 
         results.append(item)
 
@@ -579,22 +582,24 @@ def download_whisper_model(model_id: str):
             stop_monitor.set()
             monitor_thread.join(timeout=1.0)
 
-            # Verification: Test that Faster-Whisper can actually load the downloaded model structure
+            # Verification: Test that Faster-Whisper can actually load Whisper CT2 models
             with _download_lock:
                 _active_downloads[model_id]["status"] = "verifying"
                 _active_downloads[model_id]["progress"] = 98
 
-            from faster_whisper import WhisperModel
-            test_instance = WhisperModel(
-                model_id,
-                device="cpu",
-                compute_type="int8",
-                cpu_threads=2,
-                download_root=cache_dir
-            )
-            del test_instance
-            import gc
-            gc.collect()
+            if meta.get("family") == "whisper":
+                from faster_whisper import WhisperModel
+                from backend.app.engines.transcriber import _resolve_model_id
+                test_instance = WhisperModel(
+                    _resolve_model_id(model_id),
+                    device="cpu",
+                    compute_type="int8",
+                    cpu_threads=2,
+                    download_root=cache_dir
+                )
+                del test_instance
+                import gc
+                gc.collect()
 
             with _download_lock:
                 _active_downloads[model_id]["status"] = "completed"
@@ -606,15 +611,15 @@ def download_whisper_model(model_id: str):
                 _active_downloads[model_id]["status"] = "failed"
                 _active_downloads[model_id]["error"] = str(e)
         finally:
-            time.sleep(3)
+            time.sleep(10)
             with _download_lock:
-                # Retain completed or clear if not downloading
                 if _active_downloads.get(model_id, {}).get("status") in ["completed", "failed"]:
                     _active_downloads.pop(model_id, None)
 
     thread = threading.Thread(target=_worker, daemon=True)
     thread.start()
-    return _active_downloads[model_id]
+    with _download_lock:
+        return dict(_active_downloads.get(model_id, {}))
 
 def delete_whisper_model(model_id: str) -> Dict[str, Any]:
     """Safely removes installed model files from disk after checking that it is not in use."""
@@ -763,16 +768,19 @@ def get_installed_translation_models() -> List[Dict[str, Any]]:
         with _download_lock:
             dl_info = _active_downloads.get(model_id)
             if dl_info:
-                item["downloading"] = True
+                status = dl_info.get("status", "downloading")
+                item["downloading"] = status in ("starting", "downloading", "verifying")
                 item["progress"] = dl_info.get("progress", 0)
                 item["bytes_downloaded"] = dl_info.get("bytes_downloaded", 0)
                 item["total_bytes"] = dl_info.get("total_bytes", 0)
-                item["status"] = dl_info.get("status", "downloading")
+                item["status"] = status
                 item["speed_mbps"] = dl_info.get("speed_mbps", 0)
+                item["error"] = dl_info.get("error")
             else:
                 item["downloading"] = False
                 item["progress"] = 100 if installed else 0
                 item["status"] = "installed" if installed else "available"
+                item["error"] = None
 
         results.append(item)
 
@@ -881,7 +889,8 @@ def download_translation_model(model_id: str):
 
     thread = threading.Thread(target=_worker, daemon=True)
     thread.start()
-    return _active_downloads[model_id]
+    with _download_lock:
+        return dict(_active_downloads.get(model_id, {}))
 
 def delete_translation_model(model_id: str) -> Dict[str, Any]:
     """Safely removes translation model from disk."""

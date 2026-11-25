@@ -44,9 +44,24 @@ export default function BatchQueueView({
   };
 
   useEffect(() => {
-    fetchJobs();
-    const interval = setInterval(fetchJobs, 3000);
-    return () => clearInterval(interval);
+    let active = true;
+    const load = async () => {
+      try {
+        const res = await fetch("/api/batch");
+        if (res.ok && active) {
+          const data = await res.json();
+          setJobs(data);
+        }
+      } catch {
+        /* ignore */
+      }
+    };
+    void load();
+    const interval = setInterval(() => void load(), 3000);
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
   }, []);
 
   const handleSelectFiles = async () => {

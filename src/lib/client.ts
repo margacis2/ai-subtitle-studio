@@ -199,6 +199,7 @@ export function uploadProjectWithProgress(
 
     const xhr = new XMLHttpRequest();
     xhr.open("POST", "/api/projects");
+    xhr.timeout = 15 * 60 * 1000;
 
     const token = typeof window !== "undefined" ? localStorage.getItem("studio_auth_token") : null;
     if (token) xhr.setRequestHeader("x-studio-token", token);
@@ -245,6 +246,10 @@ export function uploadProjectWithProgress(
 
     xhr.onerror = () => {
       reject(new ApiError(0, "Network connection error during file upload. Check Wi-Fi or Internet access."));
+    };
+
+    xhr.ontimeout = () => {
+      reject(new ApiError(408, "File upload timed out. Try a smaller file or check network speed."));
     };
 
     if (abortSignal) {

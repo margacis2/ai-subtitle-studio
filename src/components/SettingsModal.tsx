@@ -36,6 +36,7 @@ export default function SettingsModal({
     engineUrl: string;
     token?: string;
     hasToken?: boolean;
+    tokenMissing?: boolean;
     isColab: boolean;
     online: boolean;
     latencyMs: number | null;
@@ -217,16 +218,23 @@ export default function SettingsModal({
                 />
               </div>
               <div>
-                <label className="mb-1 block text-[0.7rem] font-medium text-neutral-400">API Secret Token (Optional)</label>
+                <label className="mb-1 block text-[0.7rem] font-medium text-neutral-400">API Secret Token (From Colab Cell 3)</label>
                 <input
                   type="text"
-                  placeholder="e.g. colab-t4-xxx"
+                  placeholder={engineInfo?.hasToken ? "Token saved (paste to replace)" : "Paste API Token from Colab"}
                   className="input w-full text-xs font-mono"
                   value={colabToken}
                   onChange={(e) => setColabToken(e.target.value)}
                 />
               </div>
             </div>
+
+            {engineInfo?.tokenMissing && (
+              <div className="rounded border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-[0.72rem] text-amber-300">
+                Colab requires the <strong>API Token</strong> printed in Cell 3. Paste it above and click{" "}
+                <strong>Save &amp; Verify Connection</strong>, otherwise transcription requests will return 401 Unauthorized.
+              </div>
+            )}
 
             <div className="flex flex-wrap items-center gap-2 pt-1">
               <Btn

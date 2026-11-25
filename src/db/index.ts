@@ -10,7 +10,11 @@ const globalForDb = globalThis as typeof globalThis & {
 
 function getDbPath(): string {
   if (process.env.SQLITE_DB_PATH) {
-    return process.env.SQLITE_DB_PATH;
+    const customDir = path.dirname(path.resolve(process.env.SQLITE_DB_PATH));
+    if (!fs.existsSync(customDir)) {
+      fs.mkdirSync(customDir, { recursive: true });
+    }
+    return path.resolve(process.env.SQLITE_DB_PATH);
   }
   // Store in LocalAppData on Windows, or user home directory
   const baseDir =
@@ -43,8 +47,11 @@ function initDatabase() {
       duration_sec REAL NOT NULL DEFAULT 0,
       size_bytes INTEGER NOT NULL DEFAULT 0,
       source_lang TEXT NOT NULL DEFAULT 'auto',
-      target_lang TEXT NOT NULL DEFAULT 'en',
+      target_lang TEXT NOT NULL DEFAULT 'original',
       asr_model TEXT NOT NULL DEFAULT 'auto',
+      translation_model TEXT DEFAULT 'nllb',
+      pause_before_translate INTEGER DEFAULT 1,
+      unload_asr_before_translate INTEGER DEFAULT 1,
       device TEXT NOT NULL DEFAULT 'auto',
       compute_type TEXT NOT NULL DEFAULT 'auto',
       workers INTEGER NOT NULL DEFAULT 1,
@@ -63,6 +70,8 @@ function initDatabase() {
       completed_chunks INTEGER NOT NULL DEFAULT 0,
       quality_score INTEGER,
       processing_time_sec REAL,
+      asr_time_sec REAL,
+      translation_time_sec REAL,
       vad_json TEXT,
       engine_note TEXT,
       started_at TEXT,

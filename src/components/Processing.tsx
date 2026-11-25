@@ -122,10 +122,35 @@ export default function Processing({
   const stopRef = useRef(false);
   const pauseRef = useRef(false);
   const runRef = useRef(false);
+  const [isRunning, setIsRunning] = useState(false);
   const t0Ref = useRef(0);
   const asrT0Ref = useRef(0);
   const transT0Ref = useRef(0);
   const logBoxRef = useRef<HTMLDivElement>(null);
+  const mountedRef = useRef(true);
+  const doneTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      stopRef.current = true;
+      pauseRef.current = false;
+      if (doneTimerRef.current) {
+        clearTimeout(doneTimerRef.current);
+        doneTimerRef.current = null;
+      }
+      if (translationDecisionRef.current) {
+        translationDecisionRef.current({
+          action: "skip",
+          model: "nllb",
+          targetLang: "original",
+          unloadAsr: false,
+        });
+        translationDecisionRef.current = null;
+      }
+    };
+  }, []);
 
   const p = detail?.project ?? initial;
   const modelId = p.asrModel === "auto" ? "small" : p.asrModel;
@@ -261,6 +286,7 @@ export default function Processing({
   const run = useCallback(async () => {
     if (runRef.current) return;
     runRef.current = true;
+    setIsRunning(true);
     stopRef.current = false;
     try {
       t0Ref.current = Date.now();
@@ -429,27 +455,29 @@ export default function Processing({
         logEv("run", `[Stage 2] Neural Translation started with ${chosenEngine.toUpperCase()}: ${langName(detectedLang)} → ${langName(targetLang)} (${totalSubs} lines)`);
 
         const batchSize = 32;
-        const allSubs = [...d.subtitles];
+        const sourceSubs = d.subtitles;
+        const translatedSubs: SubLine[] = [];
 
-        for (let i = 0; i < allSubs.length; i += batchSize) {
+        for (let i = 0; i < sourceSubs.length; i += batchSize) {
           if (stopRef.current) break;
           while (pauseRef.current && !stopRef.current) await sleep(400);
           if (stopRef.current) break;
 
-          const batch = allSubs.slice(i, i + batchSize);
+          const batch = sourceSubs.slice(i, i + batchSize);
           const rawTexts = batch.map((s) => s.original);
+          let batchTranslations: string[] | null = null;
 
           try {
-            const translatedBatch = await translateTexts(rawTexts, detectedLang, targetLang, chosenEngine);
-            for (let j = 0; j < batch.length; j++) {
-              batch[j].translation = translatedBatch[j] || batch[j].original;
-            }
+            batchTranslations = await translateTexts(rawTexts, detectedLang, targetLang, chosenEngine);
           } catch (trErr: any) {
             logEv("warn", `Translation batch fallback: ${trErr.message}. Keeping original.`);
-            for (const b of batch) {
-              b.translation = b.original;
-            }
           }
+
+          const updatedBatch: SubLine[] = batch.map((item, j) => ({
+            ...item,
+            translation: batchTranslations?.[j] || item.original,
+          }));
+          translatedSubs.push(...updatedBatch);
 
           const doneCount = Math.min(totalSubs, i + batch.length);
           setTransDoneLines(doneCount);
@@ -457,14 +485,17 @@ export default function Processing({
           // Update live preview items with real translated text
           setLive((prev) =>
             prev.map((s) => {
-              const match = batch.find((b) => b.startMs === s.startMs);
+              const match = updatedBatch.find((b) => b.startMs === s.startMs);
               return match ? { ...s, translation: match.translation } : s;
             }),
           );
         }
 
-        // Save translated subtitles to SQLite
-        await saveSubtitles(initial.id, allSubs);
+        // Save translated subtitles to SQLite (preserve any remaining lines if stopped early)
+        const finalSubs = translatedSubs.length === sourceSubs.length
+          ? translatedSubs
+          : [...translatedSubs, ...sourceSubs.slice(translatedSubs.length)];
+        await saveSubtitles(initial.id, finalSubs);
         const transDuration = (Date.now() - transT0Ref.current) / 1000;
         setTransDurationSec(transDuration);
         await patchProject(initial.id, { targetLang, translationTimeSec: transDuration });
@@ -501,14 +532,17 @@ export default function Processing({
       setActiveStage("done");
       setFinished(true);
       onToast("ok", "Processing complete — opening results");
-      setTimeout(onDone, 900);
+      doneTimerRef.current = setTimeout(() => {
+        if (mountedRef.current) onDone();
+      }, 900);
     } catch (e) {
       logEv("err", `Pipeline error: ${e instanceof Error ? e.message : String(e)}`);
       onToast("err", e instanceof Error ? e.message : "Pipeline error");
     } finally {
       runRef.current = false;
+      setIsRunning(false);
     }
-  }, [dispatch, initial.id, logEv, model.name, model.params, onDone, onProject, onToast, p.chunkSizeSec, p.device, p.durationSec, p.name, p.sourceLang, p.targetLang, refresh]);
+  }, [dispatch, initial.id, logEv, model.name, model.params, onDone, onProject, onToast, p.device, p.durationSec, p.name, p.pauseBeforeTranslate, p.sourceLang, p.targetLang, p.translationModel, p.unloadAsrBeforeTranslate, refresh]);
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -630,7 +664,7 @@ export default function Processing({
               {/* Model Selector in Processing View */}
               <div className="flex items-center gap-1 font-sans">
                 <span className="text-neutral-400">Model:</span>
-                {!runRef.current || isFailed || paused || cancelled ? (
+                {!isRunning || isFailed || paused || cancelled ? (
                   <select
                     className="bg-neutral-900 border border-neutral-700 text-teal-300 rounded px-2 py-0.5 text-[0.72rem] font-mono focus:outline-none focus:border-teal-500"
                     value={p.asrModel || "small"}
@@ -962,7 +996,8 @@ export default function Processing({
                 Subtitles Ready — {p.name}
               </h3>
               <p className="text-xs text-neutral-300 mt-0.5">
-                {detail?.subtitles.length ?? 0} subtitle lines generated using NVIDIA RTX 3050 CUDA GPU.
+                {detail?.subtitles.length ?? 0} subtitle lines generated using{" "}
+                {hw?.gpuName ? `${hw.gpuName} (${hw.cudaAvailable ? "CUDA" : "CPU"})` : "Local AI Engine"}.
               </p>
             </div>
           </div>

@@ -27,6 +27,7 @@ import {
   patchProject,
   saveSubtitles,
   translateTexts,
+  unloadModels,
   type ProjectDetail,
 } from "@/lib/client";
 import PreviewPlayer, { activeLine } from "./PreviewPlayer";
@@ -398,9 +399,10 @@ export default function Editor({
   }, [lines, playerTime, redo, save, undo, onToast]);
 
   /* export */
-  const buildExport = (): { content: string; ext: string; mime: string } => {
+  const buildExport = (formatOverride?: typeof exp.format): { content: string; ext: string; mime: string } => {
     const sp = exp.speakerOn;
-    switch (exp.format) {
+    const fmt = formatOverride ?? exp.format;
+    switch (fmt) {
       case "vtt":
         return { content: toVtt(lines, exp.field, sp), ext: "vtt", mime: "text/vtt" };
       case "ass":
@@ -413,12 +415,12 @@ export default function Editor({
         return { content: toSrt(lines, exp.field, sp), ext: "srt", mime: "application/x-subrip" };
     }
   };
-  const doExport = (copy = false) => {
+  const doExport = (copy = false, formatOverride?: typeof exp.format) => {
     if (lines.length === 0) {
       onToast("warn", "Nothing to export yet");
       return;
     }
-    const { content, ext, mime } = buildExport();
+    const { content, ext, mime } = buildExport(formatOverride);
     if (copy) {
       void navigator.clipboard.writeText(content).then(
         () => onToast("ok", "Copied to clipboard"),
@@ -434,6 +436,9 @@ export default function Editor({
     if (lines.length === 0) return;
     setTranslatingWithOpus(true);
     try {
+      if (settings.unloadAsrBeforeTranslate !== false) {
+        await unloadModels().catch(() => null);
+      }
       const srcTexts = lines.map((l) => l.original || l.translation);
       const effectiveLang = p.sourceLang === "auto" ? (langs[0] || "ja") : p.sourceLang;
       const translations = await translateTexts(srcTexts, effectiveLang, transTargetLang, transEngine);
@@ -537,23 +542,13 @@ export default function Editor({
           </Btn>
           <Btn
             icon="download"
-            onClick={() => {
-              const prev = exp.format;
-              exp.format = "vtt";
-              doExport();
-              exp.format = prev;
-            }}
+            onClick={() => doExport(false, "vtt")}
           >
             VTT
           </Btn>
           <Btn
             icon="download"
-            onClick={() => {
-              const prev = exp.format;
-              exp.format = "ass";
-              doExport();
-              exp.format = prev;
-            }}
+            onClick={() => doExport(false, "ass")}
           >
             ASS
           </Btn>
@@ -918,8 +913,12 @@ export default function Editor({
                   <span className="min-w-0 flex-1 truncate" style={{ color: "var(--teal)" }}>{g.translation}</span>
                   <button className="rounded p-1 hover:bg-[var(--bg4)]" style={{ color: "var(--faint)" }} title="Remove term"
                     onClick={async () => {
-                      await deleteGlossary(g.id);
-                      setGlossary((gs) => gs.filter((x) => x.id !== g.id));
+                      try {
+                        await deleteGlossary(g.id);
+                        setGlossary((gs) => gs.filter((x) => x.id !== g.id));
+                      } catch (e: any) {
+                        onToast("err", e?.message || "Failed to delete glossary term");
+                      }
                     }}>
                     <Icon name="x" size={11} />
                   </button>
@@ -936,10 +935,14 @@ export default function Editor({
               <input className="input !py-1.5 text-[0.74rem]" placeholder="Preferred translation" value={gTrans} onChange={(e) => setGTrans(e.target.value)} />
               <Btn size="sm" icon="plus" onClick={async () => {
                 if (!gTerm.trim() || !gTrans.trim()) return;
-                const row = await addGlossary(gTerm.trim(), gTrans.trim());
-                setGlossary((gs) => [...gs, row]);
-                setGTerm("");
-                setGTrans("");
+                try {
+                  const row = await addGlossary(gTerm.trim(), gTrans.trim());
+                  setGlossary((gs) => [...gs, row]);
+                  setGTerm("");
+                  setGTrans("");
+                } catch (e: any) {
+                  onToast("err", e?.message || "Failed to add glossary term");
+                }
               }} />
             </div>
             <Btn size="sm" icon="spark" className="mt-2 w-full" onClick={applyGlossaryNow}>Apply glossary to subtitles</Btn>

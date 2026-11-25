@@ -32,7 +32,6 @@ export default function TranslationView({
   const [inputText, setInputText] = useState("");
   const [outputText, setOutputText] = useState("");
   const [translating, setTranslating] = useState(false);
-  const [charCount, setCharCount] = useState(0);
 
   const handleTranslate = useCallback(async () => {
     const raw = inputText.trim();
@@ -170,10 +169,7 @@ export default function TranslationView({
             className="input min-h-[340px] flex-1 resize-y p-3 text-sm leading-relaxed"
             placeholder={`Enter or paste your text here (e.g. Japanese: こんにちは / Tamil: வணக்கம், எப்படி இருக்கீங்க?)...`}
             value={inputText}
-            onChange={(e) => {
-              setInputText(e.target.value);
-              setCharCount(e.target.value.length);
-            }}
+            onChange={(e) => setInputText(e.target.value)}
           />
         </div>
 

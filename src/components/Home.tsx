@@ -173,6 +173,7 @@ export default function Home({
     const targetModels = ["tiny", "base", "small"];
     setBenchRunning("Initializing benchmark...");
     try {
+      let lastErr: string | null = null;
       for (const mId of targetModels) {
         const mMeta = ASR_MODELS.find((x) => x.id === mId) || { name: mId, accuracy: "High", vramGb: 1.6 };
         setBenchRunning(mMeta.name);
@@ -191,13 +192,16 @@ export default function Home({
             vram: data.peak_vram_mb > 0 ? `${(data.peak_vram_mb / 1024).toFixed(1)} GB` : `${mMeta.vramGb} GB`,
             wallSec: data.transcribe_time_sec,
           });
+        } else {
+          const errBody = await res.json().catch(() => ({}));
+          lastErr = errBody.error || `Benchmark failed (${res.status})`;
         }
       }
       if (rows.length > 0) {
         setBenchmarks(rows);
         onToast("ok", "Hardware benchmark finished — real RTF and inference speeds measured");
       } else {
-        onToast("warn", "Benchmark completed with no results");
+        onToast("err", lastErr || "Benchmark completed with no results");
       }
     } catch (e: any) {
       onToast("err", e.message || "Benchmark run failed");
@@ -245,7 +249,7 @@ export default function Home({
                 <span className="text-teal-400 font-semibold">↑ {uploadProgress.speedStr}</span>
               </div>
               <div className="text-[11px] text-center text-teal-300/80 font-medium">
-                Uploading to Windows Host for RTX 3050 GPU processing…
+                Uploading to {hardware?.gpuName ? `${hardware.gpuName} Host` : "Host AI Engine"} for processing…
               </div>
             </div>
           ) : (
@@ -488,8 +492,13 @@ export default function Home({
                 return;
               }
               if (first.status === "completed") {
-                await patchProject(first.id, { resetChunks: true });
-                onRefresh();
+                try {
+                  await patchProject(first.id, { resetChunks: true });
+                  onRefresh();
+                } catch (err: any) {
+                  onToast("err", err?.message || "Failed to reset project");
+                  return;
+                }
               }
               start(first.id);
             }}>

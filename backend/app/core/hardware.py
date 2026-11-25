@@ -40,10 +40,26 @@ def get_model_cache_dir() -> str:
     os.makedirs(path, exist_ok=True)
     return path
 
+def get_ffmpeg_executable() -> str | None:
+    env = os.environ.get("FFMPEG_PATH")
+    if env and os.path.isfile(env):
+        return env
+    candidates = [
+        r"C:\ffmpeg\ffmpeg.exe",
+        r"C:\ffmpeg\bin\ffmpeg.exe",
+        os.path.join(ROOT_DIR, "bin", "ffmpeg.exe"),
+        os.path.join(os.getcwd(), "bin", "ffmpeg.exe"),
+    ]
+    for c in candidates:
+        if os.path.isfile(c):
+            return c
+    return shutil.which("ffmpeg")
+
 def detect_hardware():
     """Detailed real hardware diagnostics for CPU, RAM, and GPU from system APIs."""
     total_ram = psutil.virtual_memory().total / (1024 ** 3)
     avail_ram = psutil.virtual_memory().available / (1024 ** 3)
+    ffmpeg_bin = get_ffmpeg_executable()
 
     info = {
         "os": platform.system(),
@@ -60,7 +76,8 @@ def detect_hardware():
         "gpu_vram_used_gb": None,
         "gpu_utilization_pct": None,
         "driver_version": None,
-        "ffmpeg_available": shutil.which("ffmpeg") is not None,
+        "ffmpeg_available": ffmpeg_bin is not None,
+        "ffmpeg_path": ffmpeg_bin,
         "recommended_model": "small",
         "recommended_device": "cpu",
         "recommended_compute": "int8"
@@ -84,7 +101,8 @@ def detect_hardware():
                 "--query-gpu=name,memory.total,memory.free,memory.used,utilization.gpu,driver_version",
                 "--format=csv,noheader,nounits"
             ]
-            res = subprocess.run(cmd, capture_output=True, text=True, timeout=3)
+            creation_flags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+            res = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=3, creationflags=creation_flags)
             if res.returncode == 0 and res.stdout.strip():
                 first_line = res.stdout.strip().split("\n")[0]
                 parts = [p.strip() for p in first_line.split(",")]
@@ -114,7 +132,7 @@ def detect_hardware():
     # Hardware recommendation
     if info["cuda_available"] and (info.get("gpu_vram_gb") or 0) >= 3.0:
         info["recommended_device"] = "cuda"
-        info["recommended_compute"] = "float16"
+        info["recommended_compute"] = "int8_float16" if (info.get("gpu_vram_gb") or 0) <= 6.0 else "float16"
         info["recommended_model"] = "small"
     elif info["ram_available_gb"] >= 8.0:
         info["recommended_device"] = "cpu"

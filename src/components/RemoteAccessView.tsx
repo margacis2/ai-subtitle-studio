@@ -35,17 +35,36 @@ export function RemoteAccessView({ onClose }: RemoteAccessViewProps) {
       setPinRequired(data.pin_required);
       setActionError(null);
     } catch (err: any) {
-      console.warn("Failed to fetch remote status:", err);
+      setActionError(err?.message || "Local Python AI backend is offline on port 8001.");
     } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    refreshStatus();
-    const interval = setInterval(refreshStatus, 4000);
-    return () => clearInterval(interval);
-  }, [refreshStatus]);
+    let active = true;
+    const load = async () => {
+      try {
+        const data = await fetchRemoteStatus();
+        if (!active) return;
+        setStatus(data);
+        setPinRequired(data.pin_required);
+        setActionError(null);
+      } catch (err: any) {
+        if (active) {
+          setActionError(err?.message || "Local Python AI backend is offline on port 8001.");
+        }
+      } finally {
+        if (active) setLoading(false);
+      }
+    };
+    void load();
+    const interval = setInterval(() => void load(), 4000);
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
+  }, []);
 
   const handleToggleTunnel = async () => {
     setTunnelLoading(true);
